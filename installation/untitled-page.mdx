@@ -1,0 +1,70 @@
+---
+title: "Quick Install"
+description: "Install GameAP in a single command on Linux or Windows."
+---
+
+## Install
+
+<Tabs>
+  <Tab title="Linux">
+    Run the installer and follow the prompts:
+
+    ```shell
+    bash <(curl -s https://gameap.com/install.sh)
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Supported: Windows 10/11, Server 2019/2022/2025.
+
+    <Steps>
+      <Step title="Download gameapctl">
+        Grab the latest Windows AMD64 archive from the [gameapctl releases page](https://github.com/gameap/gameapctl/releases).
+      </Step>
+      <Step title="Run it">
+        Launch the executable — a browser window opens automatically.
+      </Step>
+      <Step title="Install">
+        In the **Web/API** section, click **Install** and fill in the parameters below.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Parameters
+
+<ParamField path="host" type="string" required>
+  Domain or IP where the panel will be reachable. For IPs, use the address bound to the VDS network interface — behind NAT, use the internal IP and set up port forwarding.
+
+  Examples: `10.182.104.8`, `10.182.104.8:2080`, `example.com`, `http://example.com`
+</ParamField>
+
+<ParamField path="database" type="postgresql | mysql | sqlite">
+  Storage for users, servers, and panel data.
+
+  - **PostgreSQL** — recommended for most setups.
+  - **MySQL / MariaDB** — fine alternative; MariaDB ships by default on some distros.
+  - **SQLite** — only for light loads (≤ 10 game servers).
+</ParamField>
+
+<Note>
+  At the end of installation, the panel credentials and database details are printed. **Save them** — they aren't shown again.
+</Note>
+
+## Options (Linux)
+
+<CodeGroup>
+```shell Non-interactive
+bash <(curl -s https://gameap.com/install.sh) \
+  --database=postgresql \
+  --host=http://127.0.0.1 \
+  --port=80
+```
+
+```shell With daemon
+bash <(curl -s https://gameap.com/install.sh) --with-daemon
+```
+</CodeGroup>
+
+<Tip>
+  Use `--with-daemon` when the panel and game servers run on the same VDS — it installs the GameAP Daemon alongside the panel.
+</Tip>

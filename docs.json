@@ -28,13 +28,14 @@
             "group": "Get Started",
             "pages": [
               "introduction",
-              "quickstart",
-              "architecture"
+              "architecture",
+              "quickstart"
             ]
           },
           {
             "group": "Installation",
             "pages": [
+              "installation/untitled-page",
               "installation/docker",
               "installation/binary",
               "installation/configuration"
