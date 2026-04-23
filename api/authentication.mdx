@@ -1,0 +1,190 @@
+---
+title: "Authenticating with the GameAP API"
+description: "How to obtain session tokens via login and create scoped Personal Access Tokens (PATs) to authenticate requests to the GameAP REST API."
+keywords: ["gameap authentication", "api token", "personal access token", "bearer token", "pat"]
+---
+
+Every request to the GameAP API must include a valid authentication credential. You can either obtain a short-lived session token by logging in, or create a long-lived Personal Access Token (PAT) with scoped permissions. Both token types are passed in the same `Authorization: Bearer` header.
+
+## Logging in to get a token
+
+Login tokens are valid for 24 hours (or 30 days with `remember: "on"`). They give you full access to the API based on your user role.
+
+<Steps>
+  <Step title="Send a POST request to /api/auth/login">
+    Include your credentials in the JSON body.
+
+    ```bash
+    curl -X POST http://<your-panel-host>:8025/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"login": "admin", "password": "your-password"}'
+    ```
+
+    **Request body parameters:**
+
+    <ParamField body="login" type="string">
+      Your username. Provide either `login` or `email`.
+    </ParamField>
+
+    <ParamField body="email" type="string">
+      Your email address. Provide either `login` or `email`.
+    </ParamField>
+
+    <ParamField body="password" type="string" required>
+      Your account password.
+    </ParamField>
+
+    <ParamField body="remember" type="string" default="">
+      Set to `"on"` or `"true"` to extend the token lifetime to 30 days instead of 24 hours.
+    </ParamField>
+  </Step>
+
+  <Step title="Extract the token from the response">
+    A successful login returns a JSON object containing the token, expiry, and user info.
+
+    ```json
+    {
+      "token": "eyJhbGciOiJQQVNFVE8iLCJ0eXAiOiJKV1QifQ...",
+      "expires_in": 86400,
+      "user": {
+        "login": "admin",
+        "email": "admin@example.com",
+        "name": "Admin"
+      }
+    }
+    ```
+
+    <ResponseField name="token" type="string">
+      The Bearer token to use in subsequent requests. Store this value securely.
+    </ResponseField>
+
+    <ResponseField name="expires_in" type="integer">
+      Token lifetime in seconds (86400 = 24 hours, 2592000 = 30 days).
+    </ResponseField>
+
+    <ResponseField name="user" type="object">
+      Basic info about the authenticated user (login, email, name).
+    </ResponseField>
+  </Step>
+
+  <Step title="Include the token in subsequent requests">
+    Pass the token in the `Authorization` header for every API call.
+
+    ```bash
+    curl http://<your-panel-host>:8025/api/servers \
+      -H "Authorization: Bearer eyJhbGciOiJQQVNFVE8iLCJ0eXAiOiJKV1QifQ..."
+    ```
+  </Step>
+</Steps>
+
+**Error responses:**
+
+| Code | Meaning |
+|------|---------|
+| 401  | Invalid username or password |
+| 422  | Missing required fields |
+
+## Personal Access Tokens
+
+Personal Access Tokens (PATs) are long-lived credentials with scoped abilities. Use them for automation, integrations, or applications that should only have access to specific operations. A PAT is formatted as `{token_id}|{token_secret}` — for example, `42|abc123def456xyz`.
+
+<Steps>
+  <Step title="Create a PAT via POST /api/tokens">
+    Specify a name and a list of abilities for the token.
+
+    ```bash
+    curl -X POST http://<your-panel-host>:8025/api/tokens \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+      -d '{
+        "token_name": "My deployment token",
+        "abilities": ["server:list", "server:start", "server:stop"]
+      }'
+    ```
+
+    <ParamField body="token_name" type="string" required>
+      A human-readable label for the token (max 255 characters). Helps you identify it later.
+    </ParamField>
+
+    <ParamField body="abilities" type="string[]" required>
+      List of ability strings that this token is allowed to use. See the full list below.
+    </ParamField>
+  </Step>
+
+  <Step title="Store the returned token">
+    The full token value is only shown once in the response. Copy it immediately.
+
+    ```json
+    {
+      "id": 42,
+      "token": "42|abc123def456xyz..."
+    }
+    ```
+
+    <Warning>
+      The `token` field is only returned once at creation time. It cannot be retrieved again. Store it in a secure location such as a secrets manager or environment variable.
+    </Warning>
+
+    <ResponseField name="id" type="integer" required>
+      The token ID. You can use this to delete the token later.
+    </ResponseField>
+
+    <ResponseField name="token" type="string" required>
+      The full PAT string in `{id}|{secret}` format. Use this as the Bearer token value.
+    </ResponseField>
+  </Step>
+
+  <Step title="Use the PAT in requests">
+    Use the full token value as the Bearer token in the `Authorization` header.
+
+    ```bash
+    curl http://<your-panel-host>:8025/api/servers \
+      -H "Authorization: Bearer 42|abc123def456xyz..."
+    ```
+  </Step>
+</Steps>
+
+## Available PAT abilities
+
+Abilities control which API operations a PAT may perform. When creating a token, include only the abilities your integration actually needs.
+
+### Server abilities (regular users)
+
+| Ability | Description |
+|---------|-------------|
+| `server:list` | List game servers |
+| `server:start` | Start a game server |
+| `server:stop` | Stop a game server |
+| `server:restart` | Restart a game server |
+| `server:update` | Update game server files |
+| `server:console` | Read and write to the server console |
+| `server:rcon-console` | Access the server RCON console |
+| `server:rcon-players` | Manage players via RCON |
+| `server:tasks-manage` | Create, update, and delete scheduled server tasks |
+| `server:settings-manage` | Read and update server settings (variables) |
+
+### Admin abilities
+
+| Ability | Description |
+|---------|-------------|
+| `admin:server:create` | Create a new game server |
+| `admin:gdaemon-task:read` | Read GameAP Daemon tasks |
+
+<Note>
+  You can retrieve the current list of abilities from the API at any time by calling `GET /api/tokens/abilities`.
+</Note>
+
+## Token errors
+
+If a request includes an invalid, expired, or missing token, the API returns `401 Unauthorized`.
+
+```json
+{
+  "status": "error",
+  "error": "Unauthorized",
+  "message": "Unauthenticated.",
+  "http_code": 401
+}
+```
+
+Check that your token has not expired and that the `Authorization: Bearer` header is correctly formatted. PATs may also be rejected if the requested operation is outside the token's granted abilities.

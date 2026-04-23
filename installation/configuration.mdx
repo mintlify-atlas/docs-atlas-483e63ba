@@ -1,0 +1,306 @@
+---
+title: "Configure GameAP environment variables"
+description: "Complete reference for every GameAP environment variable, organized by category, with required fields, defaults, and example values."
+keywords: ["configuration", "environment variables", "env", "settings", "gameap"]
+---
+
+GameAP is configured entirely through environment variables. You can set them in your shell, pass them to a `docker run` command, reference them in a Docker Compose `environment` block, or load them from a `.env` file placed in the same directory as the binary.
+
+<Note>
+  Four variables are required for GameAP to start: `ENCRYPTION_KEY`, `AUTH_SECRET`, `DATABASE_DRIVER`, and `DATABASE_URL`. All other variables have sensible defaults.
+</Note>
+
+## Example .env file
+
+The following file shows all commonly used variables with example values. Copy it, adjust the values for your environment, and save it as `.env`.
+
+```bash .env
+# ── Security ── required in production ──────────────────────────────────────
+ENCRYPTION_KEY=change-me-to-random-32-char-key
+AUTH_SECRET=change-me-to-random-32-char-secret
+AUTH_SERVICE=paseto
+
+# ── Server ──────────────────────────────────────────────────────────────────
+HTTP_HOST=0.0.0.0
+HTTP_PORT=8025
+
+# ── TLS (optional) ──────────────────────────────────────────────────────────
+# TLS_CERT_FILE=/path/to/cert.pem
+# TLS_KEY_FILE=/path/to/key.pem
+# TLS_FORCE_HTTPS=true
+
+# ── Database ────────────────────────────────────────────────────────────────
+DATABASE_DRIVER=postgres
+DATABASE_URL=postgres://gameap:gameap@postgres:5432/gameap?sslmode=disable
+POSTGRES_PASSWORD=gameap
+
+# MySQL alternative:
+# DATABASE_DRIVER=mysql
+# DATABASE_URL=gameap:gameap@tcp(mysql:3306)/gameap?parseTime=true
+
+# SQLite alternative:
+# DATABASE_DRIVER=sqlite
+# DATABASE_URL=file:/var/lib/gameap/db.sqlite?_busy_timeout=5000&_journal_mode=WAL&cache=shared
+
+# ── Cache ───────────────────────────────────────────────────────────────────
+CACHE_DRIVER=redis
+CACHE_REDIS_ADDR=redis:6379
+# CACHE_DRIVER=memory
+
+# ── File storage ────────────────────────────────────────────────────────────
+FILES_DRIVER=local
+FILES_LOCAL_BASE_PATH=/var/lib/gameap/files
+
+# S3 alternative:
+# FILES_DRIVER=s3
+# FILES_S3_ENDPOINT=https://s3.amazonaws.com
+# FILES_S3_ACCESS_KEY_ID=your-access-key
+# FILES_S3_SECRET_ACCESS_KEY=your-secret-key
+# FILES_S3_BUCKET=gameap-files
+
+# ── Logging ─────────────────────────────────────────────────────────────────
+LOGGER_LEVEL=info
+
+# ── RBAC ────────────────────────────────────────────────────────────────────
+RBAC_CACHE_TTL=30s
+
+# ── Plugins ─────────────────────────────────────────────────────────────────
+# PLUGINS_DISABLED=false
+# PLUGIN_STORE_URL=https://plugins.gameap.dev/api
+# PLUGIN_STORE_LICENSE_KEY=your-license-key
+```
+
+## All variables by category
+
+<AccordionGroup>
+  <Accordion title="Server configuration">
+    Controls the address and ports the HTTP server listens on.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `HTTP_HOST` | `0.0.0.0` | Host interface to bind to. Use `127.0.0.1` to listen on loopback only. |
+    | `HTTP_PORT` | `8025` | HTTP port. |
+    | `HTTPS_PORT` | `443` | HTTPS port when TLS is enabled. |
+
+    ```bash
+    HTTP_HOST=0.0.0.0
+    HTTP_PORT=8025
+    ```
+  </Accordion>
+
+  <Accordion title="TLS configuration">
+    Enables HTTPS directly in the GameAP process. If you are terminating TLS at a reverse proxy, you do not need to set any of these variables.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `TLS_CERT_FILE` | — | Path to a PEM-encoded certificate file. |
+    | `TLS_KEY_FILE` | — | Path to a PEM-encoded private key file. |
+    | `TLS_CERT` | — | Certificate content as PEM or base64. Overrides `TLS_CERT_FILE`. |
+    | `TLS_KEY` | — | Private key content as PEM or base64. Overrides `TLS_KEY_FILE`. |
+    | `TLS_FORCE_HTTPS` | `false` | Redirect all HTTP requests to HTTPS. |
+
+    ```bash
+    TLS_CERT_FILE=/etc/ssl/certs/gameap.crt
+    TLS_KEY_FILE=/etc/ssl/private/gameap.key
+    TLS_FORCE_HTTPS=true
+    ```
+  </Accordion>
+
+  <Accordion title="Database configuration">
+    <Note>
+      `DATABASE_DRIVER` and `DATABASE_URL` are required. GameAP will not start without them.
+    </Note>
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `DATABASE_DRIVER` | — | **Required.** One of `postgres`, `mysql`, `sqlite`, or `inmemory`. |
+    | `DATABASE_URL` | — | **Required.** Connection string for the selected driver (see formats below). |
+
+    **Connection string formats:**
+
+    | Driver | Format |
+    |---|---|
+    | `postgres` | `postgres://user:pass@host:5432/dbname?sslmode=disable` |
+    | `mysql` | `user:pass@tcp(host:3306)/dbname?parseTime=true` |
+    | `sqlite` | `file:/path/to/file.db?_busy_timeout=5000&_journal_mode=WAL&cache=shared` |
+    | `inmemory` | _(leave empty — data is not persisted)_ |
+
+    ```bash
+    # PostgreSQL
+    DATABASE_DRIVER=postgres
+    DATABASE_URL=postgres://gameap:secret@localhost:5432/gameap?sslmode=disable
+
+    # MySQL
+    DATABASE_DRIVER=mysql
+    DATABASE_URL=gameap:secret@tcp(localhost:3306)/gameap?parseTime=true
+
+    # SQLite
+    DATABASE_DRIVER=sqlite
+    DATABASE_URL=file:/var/lib/gameap/gameap.db?_busy_timeout=5000&_journal_mode=WAL&cache=shared
+    ```
+  </Accordion>
+
+  <Accordion title="Security configuration">
+    <Warning>
+      Set `ENCRYPTION_KEY` and `AUTH_SECRET` to strong, randomly generated values before running GameAP in any environment accessible from the internet. Never use the defaults.
+    </Warning>
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `ENCRYPTION_KEY` | — | **Required.** Key used to encrypt sensitive data at rest. Use at least 32 random characters. |
+    | `AUTH_SECRET` | — | **Required.** Secret used to sign PASETO/JWT tokens. Defaults to `ENCRYPTION_KEY` if not set, but setting it explicitly is recommended. |
+    | `AUTH_SERVICE` | `paseto` | Authentication token format. `paseto` is the default and recommended value. |
+
+    Generate suitable values with:
+
+    ```bash
+    # Linux / macOS
+    openssl rand -base64 32
+    ```
+
+    ```powershell
+    # Windows PowerShell
+    [System.Convert]::ToBase64String((New-Object byte[] 32 | ForEach-Object { Get-Random -Maximum 256 }))
+    ```
+  </Accordion>
+
+  <Accordion title="Cache configuration">
+    GameAP caches RBAC rules, game definitions, node metadata, and user records to reduce database load.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `CACHE_DRIVER` | `memory` | Cache backend. Options: `memory`, `redis`, `postgres`. |
+    | `CACHE_REDIS_ADDR` | `localhost:6379` | Redis server address. Used when `CACHE_DRIVER=redis`. |
+    | `CACHE_REDIS_PASSWORD` | — | Redis password. |
+    | `CACHE_REDIS_DB` | `0` | Redis database number. |
+
+    **Cache TTL overrides:**
+
+    | Variable | Default | Cached data |
+    |---|---|---|
+    | `CACHE_TTL_RBAC` | `24h` | Role-based access control rules |
+    | `CACHE_TTL_GAMES` | `48h` | Game definitions |
+    | `CACHE_TTL_NODES` | `24h` | Node metadata |
+    | `CACHE_TTL_USERS` | `6h` | User records |
+    | `CACHE_TTL_PERSONAL_TOKENS` | `24h` | Personal API tokens |
+    | `CACHE_TTL_SERVER_SETTINGS` | `12h` | Server settings |
+    | `RBAC_CACHE_TTL` | `30s` | RBAC evaluation cache (separate from the main cache TTL) |
+
+    ```bash
+    # Redis cache
+    CACHE_DRIVER=redis
+    CACHE_REDIS_ADDR=localhost:6379
+    CACHE_REDIS_PASSWORD=your-redis-password
+
+    # In-memory cache (default, no external dependency)
+    CACHE_DRIVER=memory
+    ```
+  </Accordion>
+
+  <Accordion title="File storage configuration">
+    Controls where GameAP stores uploaded files and game server assets.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `FILES_DRIVER` | — | Storage backend. Options: `local`, `s3`. |
+    | `FILES_LOCAL_BASE_PATH` | — | Absolute path for local file storage. Required when `FILES_DRIVER=local`. |
+
+    **S3 variables** (used when `FILES_DRIVER=s3`):
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `FILES_S3_ENDPOINT` | — | S3-compatible endpoint URL. |
+    | `FILES_S3_USE_SSL` | `true` | Use SSL for S3 connections. |
+    | `FILES_S3_ACCESS_KEY_ID` | — | S3 access key ID. |
+    | `FILES_S3_SECRET_ACCESS_KEY` | — | S3 secret access key. |
+    | `FILES_S3_BUCKET` | — | S3 bucket name. |
+
+    ```bash
+    # Local storage
+    FILES_DRIVER=local
+    FILES_LOCAL_BASE_PATH=/var/lib/gameap/files
+
+    # S3-compatible storage
+    FILES_DRIVER=s3
+    FILES_S3_ENDPOINT=https://s3.amazonaws.com
+    FILES_S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+    FILES_S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    FILES_S3_BUCKET=gameap-files
+    ```
+  </Accordion>
+
+  <Accordion title="Logger configuration">
+    Controls log verbosity and optional database query logging.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `LOGGER_LEVEL` | `info` | Log level. Options: `debug`, `info`, `warn`, `error`. |
+    | `LOGGER_LOG_DB_QUERIES` | `false` | Log all database queries. Useful for debugging, noisy in production. |
+
+    ```bash
+    LOGGER_LEVEL=info
+    LOGGER_LOG_DB_QUERIES=false
+    ```
+
+    <Tip>
+      Set `LOGGER_LEVEL=debug` temporarily when troubleshooting startup or connectivity issues, then revert to `info` for production.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Plugin configuration">
+    Controls the plugin system and the connection to the GameAP plugin store.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `PLUGINS_DISABLED` | `false` | Set to `true` to disable plugin support entirely. |
+    | `PLUGIN_STORE_URL` | `https://plugins.gameap.dev/api` | URL of the plugin store API. |
+    | `PLUGIN_STORE_LICENSE_KEY` | — | License key for accessing the plugin store. |
+
+    ```bash
+    PLUGINS_DISABLED=false
+    PLUGIN_STORE_URL=https://plugins.gameap.dev/api
+    # PLUGIN_STORE_LICENSE_KEY=your-license-key
+    ```
+  </Accordion>
+
+  <Accordion title="Global API and UI">
+    Miscellaneous settings for the global GameAP API and the web interface.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `GLOBAL_API_URL` | `https://api.gameap.com` | GameAP global API used to fetch game updates and metadata. |
+    | `DEFAULT_LANGUAGE` | — | Default language code for the web UI (e.g., `en`, `ru`). |
+  </Accordion>
+
+  <Accordion title="Legacy configuration">
+    Variables for compatibility with older GameAP installations. Only relevant when migrating from a legacy deployment.
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `LEGACY_PATH` | `/var/www/gameap/` | Path to a legacy GameAP installation directory. |
+    | `LEGACY_ENV_PATH` | `/var/www/gameap/.env` | Path to the legacy `.env` file. |
+  </Accordion>
+</AccordionGroup>
+
+## Production recommendations
+
+<Warning>
+  The following settings must be changed before deploying GameAP in a production environment.
+</Warning>
+
+- **`ENCRYPTION_KEY`** — generate with `openssl rand -base64 32`. Store the value securely; rotating it requires re-encrypting all stored secrets.
+- **`AUTH_SECRET`** — generate independently from `ENCRYPTION_KEY`. Rotating this value invalidates all existing sessions.
+- **`DATABASE_URL`** — use a dedicated database user with a strong password. Avoid using database root credentials.
+- **`LOGGER_LEVEL`** — keep at `info` or `warn` in production. `debug` logs database queries and other sensitive information.
+- **`TLS_FORCE_HTTPS`** — set to `true` when serving GameAP over HTTPS, either directly or via a reverse proxy that sets `X-Forwarded-Proto`.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Deploy with Docker" icon="docker" href="/installation/docker">
+    Use Docker Compose with your chosen database and cache backend.
+  </Card>
+  <Card title="Install as a binary" icon="terminal" href="/installation/binary">
+    Run the GameAP binary directly on Linux, Windows, or macOS.
+  </Card>
+</CardGroup>

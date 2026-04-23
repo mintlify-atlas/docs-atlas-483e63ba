@@ -1,0 +1,154 @@
+---
+title: "Using the GameAP file manager"
+description: "Browse, upload, download, edit, and manage game server files directly from the GameAP panel — no SSH or FTP access to the node required."
+keywords: ["file manager", "server files", "upload", "download", "edit files", "gameap", "file browser"]
+---
+
+The GameAP file manager gives you full access to a game server's working directory through the panel. You can browse the directory tree, view and edit configuration files, upload new content, download backups, and perform common file operations — all without SSH or FTP access to the node.
+
+## How it works
+
+The file manager proxies requests through the panel to the GameAP Daemon running on the node. Before any file operation, the panel authenticates your session and checks that you have the `game_server_files` ability for the target server. The daemon then performs the actual disk operation and streams the result back.
+
+The typical workflow for browsing files is:
+
+1. **Initialize** — `GET /api/file-manager/{server}/initialize` confirms access and returns the root path.
+2. **Tree** — `GET /api/file-manager/{server}/tree?disk=server&path=.` lists directories at a given path.
+3. **Content** — `GET /api/file-manager/{server}/content?path=config.cfg` returns the content of a specific file.
+
+## Browsing the file tree
+
+<Tabs>
+  <Tab title="Web UI">
+    Open a server's detail page and click the **Files** tab. The left panel shows a collapsible directory tree. Click any directory to expand it and list its subdirectories. Click a file in the main panel to open it for viewing or editing.
+  </Tab>
+
+  <Tab title="API">
+    List directories at the server root:
+
+    ```bash
+    curl "https://your-panel.example/api/file-manager/42/tree?disk=server&path=." \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    Response:
+
+    ```json
+    {
+      "directories": [
+        {
+          "path": "cfg",
+          "type": "dir",
+          "dirname": "",
+          "basename": "cfg",
+          "props": { "has_subdirectories": false }
+        },
+        {
+          "path": "logs",
+          "type": "dir",
+          "dirname": "",
+          "basename": "logs",
+          "props": { "has_subdirectories": true }
+        }
+      ]
+    }
+    ```
+
+    Only the `server` disk is supported. Requests for other disk names return HTTP 400.
+  </Tab>
+</Tabs>
+
+## Viewing and editing files
+
+<Tip>
+  The built-in editor is ideal for quick changes to server configuration files such as `server.cfg`, `server.properties`, or `GameUserSettings.ini`. For large binary files, use download and re-upload instead.
+</Tip>
+
+<Tabs>
+  <Tab title="Web UI">
+    Click any file in the file list to open the viewer. Text files render in an editor with syntax highlighting. Click **Edit** to enable changes, then **Save** to write the updated content back to the server.
+  </Tab>
+
+  <Tab title="API">
+    Read file content:
+
+    ```bash
+    curl "https://your-panel.example/api/file-manager/42/content?path=cfg/server.cfg" \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    Update file content:
+
+    ```bash
+    curl -X POST https://your-panel.example/api/file-manager/42/update-file \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"path": "cfg/server.cfg", "content": "hostname \"My Server\"\nsv_password \"\""}'
+    ```
+
+    Stream a large file (chunked transfer):
+
+    ```bash
+    curl "https://your-panel.example/api/file-manager/42/stream-file?path=logs/server.log" \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Tab>
+</Tabs>
+
+## Uploading and downloading files
+
+<Tabs>
+  <Tab title="Web UI">
+    In the file list toolbar, click **Upload** to open the upload dialog. Drag files into the dialog or use the file picker. Multiple files can be uploaded at once. To download a file, right-click it and choose **Download**.
+  </Tab>
+
+  <Tab title="API">
+    Upload a file using `multipart/form-data`:
+
+    ```bash
+    curl -X POST https://your-panel.example/api/file-manager/42/upload \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -F "path=configs/" \
+      -F "file=@/local/path/server.cfg"
+    ```
+
+    Download a file:
+
+    ```bash
+    curl -OJ "https://your-panel.example/api/file-manager/42/download?path=cfg/server.cfg" \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Tab>
+</Tabs>
+
+## All supported operations
+
+| Operation | API endpoint | Description |
+|---|---|---|
+| Initialize | `GET /api/file-manager/{server}/initialize` | Verify access and get root path |
+| Directory tree | `GET /api/file-manager/{server}/tree` | List directories at a path |
+| File content | `GET /api/file-manager/{server}/content` | Read a file's content |
+| Stream file | `GET /api/file-manager/{server}/stream-file` | Stream large file content |
+| Upload | `POST /api/file-manager/{server}/upload` | Upload one or more files |
+| Download | `GET /api/file-manager/{server}/download` | Download a file |
+| Create file | `POST /api/file-manager/{server}/create-file` | Create a new empty file |
+| Create directory | `POST /api/file-manager/{server}/create-directory` | Create a new directory |
+| Update file | `POST /api/file-manager/{server}/update-file` | Write content to an existing file |
+| Rename | `POST /api/file-manager/{server}/rename` | Rename a file or directory |
+| Paste (copy/move) | `POST /api/file-manager/{server}/paste` | Copy or move files between paths |
+| Delete | `DELETE /api/file-manager/{server}/delete` | Delete files or directories |
+
+<Warning>
+  Delete operations are permanent. The daemon removes files directly from disk with no recycle bin or undo. Verify the path carefully before sending a delete request.
+</Warning>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Game servers" icon="server" href="/guides/game-servers">
+    Manage game servers whose files you browse here.
+  </Card>
+  <Card title="Scheduled tasks" icon="clock" href="/guides/scheduled-tasks">
+    Automate recurring server operations on a schedule.
+  </Card>
+</CardGroup>

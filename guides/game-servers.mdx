@@ -1,0 +1,180 @@
+---
+title: "Managing game servers in GameAP"
+description: "Create, configure, and operate game servers in GameAP — covering installation states, start/stop/restart controls, console access, and RCON."
+keywords: ["game servers", "gameap", "server management", "start stop restart", "rcon", "console"]
+---
+
+GameAP organises your infrastructure around _game servers_ — individual server instances tied to a game, a node, a set of network ports, and a working directory. Once created, each server can be started, stopped, restarted, updated, or reinstalled through the web UI or the REST API.
+
+## Server states
+
+A server carries two independent state flags:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `installed` | `0` — not installed, `1` — installed, `2` — installation in progress | Whether the server files are present on the node |
+| `enabled` | `true` / `false` | Whether the server is allowed to run |
+| `blocked` | `true` / `false` | Whether the server is administratively locked |
+
+A server must be installed and enabled before it can be started. Blocked servers cannot receive control commands.
+
+## Creating your first server
+
+<Steps>
+  <Step title="Open the Servers page">
+    In the sidebar, click **Servers**, then click the **Create server** button in the top-right corner.
+  </Step>
+
+  <Step title="Select a game and game mod">
+    Choose the game from the **Game** dropdown. Then select the game mod (engine variant) that determines the start command template. Both fields are required.
+  </Step>
+
+  <Step title="Choose a node">
+    Select the node that will host this server. The node must already be registered and reachable. See [Setting up nodes](/guides/nodes) if you have not added a node yet.
+  </Step>
+
+  <Step title="Configure network settings">
+    Provide the server IP address and port. Optionally add a query port (for server browser queries) and an RCON port. GameAP validates port availability against other servers on the same node.
+  </Step>
+
+  <Step title="Set the working directory">
+    Enter a directory path relative to the node's `work_path`. For example: `servers/my-csgo`. GameAP will create this directory during installation.
+  </Step>
+
+  <Step title="Save and install">
+    Click **Create**. GameAP queues an install task on the daemon. The server's `installed` status changes to **installation in progress** (2) and resolves to **installed** (1) once the daemon completes the job.
+  </Step>
+</Steps>
+
+## Server operations
+
+<Tabs>
+  <Tab title="Web UI">
+    From the server detail page, use the control buttons in the top action bar:
+
+    - **Start** — sends a start command to the daemon.
+    - **Stop** — gracefully stops the server process.
+    - **Restart** — stop followed by start in a single daemon task.
+    - **Update** — pulls the latest files from the configured repository or Steam.
+    - **Reinstall** — wipes and reinstalls the server files from scratch.
+
+    The server card on the main list reflects live process status. Status is considered stale if the daemon has not reported within the last two minutes.
+  </Tab>
+
+  <Tab title="API">
+    All control commands follow the same URL pattern. Replace `{server}` with the numeric server ID.
+
+    **Start a server**
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/start \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Stop a server**
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/stop \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Restart a server**
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/restart \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Update a server**
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/update \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Reinstall a server**
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/reinstall \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    A successful response returns a daemon task ID:
+
+    ```json
+    {
+      "status": "ok",
+      "gdaemonTaskId": 1234
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Console access
+
+The console lets you read server output and send commands without SSH access.
+
+<Tabs>
+  <Tab title="Web UI">
+    Open the server detail page and click the **Console** tab. The panel streams output from the server log and provides a command input box at the bottom.
+  </Tab>
+
+  <Tab title="API">
+    Send a command to the server console:
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/console \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"command": "say Hello from API"}'
+    ```
+
+    The command is forwarded to the daemon, which either runs the node's `send_command` script or writes to the server's `input.txt` file.
+  </Tab>
+</Tabs>
+
+## RCON
+
+For games that support RCON, GameAP can send commands directly over the RCON protocol without going through the console.
+
+<Tabs>
+  <Tab title="Web UI">
+    Open the server detail page and click the **RCON** tab. You can browse the fast-RCON command shortcuts configured on the game mod, manage players, or send raw RCON commands.
+  </Tab>
+
+  <Tab title="API">
+    Send a raw RCON command:
+
+    ```bash
+    curl -X POST https://your-panel.example/api/servers/42/rcon \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"command": "status"}'
+    ```
+
+    Retrieve the player list via RCON:
+
+    ```bash
+    curl https://your-panel.example/api/servers/42/rcon/players \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  RCON must be enabled on the server and the correct RCON port and password configured before the RCON tab becomes functional.
+</Note>
+
+## Related pages
+
+<CardGroup cols={3}>
+  <Card title="File manager" icon="folder-open" href="/guides/file-manager">
+    Browse and edit server files directly from the panel.
+  </Card>
+  <Card title="Scheduled tasks" icon="clock" href="/guides/scheduled-tasks">
+    Automate start, stop, and restart on a schedule.
+  </Card>
+  <Card title="Servers API reference" icon="code" href="/api/servers">
+    Full REST API reference for server management endpoints.
+  </Card>
+</CardGroup>

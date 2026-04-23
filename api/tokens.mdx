@@ -1,0 +1,147 @@
+---
+title: "REST API endpoints for Personal Access Tokens"
+description: "Full reference for Personal Access Token endpoints: list, create with scoped abilities, delete, and retrieve available ability definitions."
+keywords: ["personal access token api", "pat api", "gameap tokens", "api token management"]
+---
+
+Personal Access Tokens (PATs) let you authenticate API requests with long-lived, scoped credentials. Unlike session tokens obtained at login, PATs do not expire automatically and can be restricted to a specific set of abilities (permissions). They are the preferred authentication method for automation, CI/CD pipelines, and third-party integrations.
+
+## Endpoints
+
+<AccordionGroup>
+  <Accordion title="GET /api/tokens — list tokens">
+    Returns all Personal Access Tokens created by the current user.
+
+    ```bash
+    curl http://<host>:8025/api/tokens \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Array of token objects. The `token` (secret) field is **not** returned in this list — only `id`, `name`, `abilities`, and timestamps are shown.
+
+    ```json
+    [
+      {
+        "id": 1,
+        "name": "CI/CD Token",
+        "abilities": ["server:list", "server:start", "server:stop"],
+        "last_used_at": "2026-04-22T14:00:00Z",
+        "created_at": "2026-01-15T10:00:00Z"
+      }
+    ]
+    ```
+  </Accordion>
+
+  <Accordion title="POST /api/tokens — create token" defaultOpen={true}>
+    Creates a new Personal Access Token with the specified name and abilities.
+
+    <Warning>
+      The full token string is only returned once at creation time. Store it immediately in a secure location — it cannot be retrieved again.
+    </Warning>
+
+    ```bash
+    curl -X POST http://<host>:8025/api/tokens \
+      -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "token_name": "My deployment token",
+        "abilities": [
+          "server:list",
+          "server:start",
+          "server:stop",
+          "server:restart"
+        ]
+      }'
+    ```
+
+    <ParamField body="token_name" type="string" required>
+      A human-readable label to identify this token (max 255 characters).
+    </ParamField>
+
+    <ParamField body="abilities" type="string[]" required>
+      List of ability strings granted to this token. See the [full abilities list](#available-abilities) below.
+    </ParamField>
+
+    **Response (200):**
+
+    ```json
+    {
+      "id": 42,
+      "token": "42|abc123def456ghi789jkl..."
+    }
+    ```
+
+    <ResponseField name="id" type="integer" required>
+      Numeric token ID. Use this to delete the token later.
+    </ResponseField>
+    <ResponseField name="token" type="string" required>
+      The full PAT string in `{id}|{secret}` format. Use this as the Bearer token value in the `Authorization` header.
+    </ResponseField>
+
+    Use the returned token value in subsequent requests:
+
+    ```bash
+    Authorization: Bearer 42|abc123def456ghi789jkl...
+    ```
+  </Accordion>
+
+  <Accordion title="DELETE /api/tokens/{id} — delete token">
+    Permanently revokes a Personal Access Token by ID. Any requests using the deleted token will immediately receive `401 Unauthorized`.
+
+    ```bash
+    curl -X DELETE http://<host>:8025/api/tokens/42 \
+      -H "Authorization: Bearer YOUR_SESSION_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+
+  <Accordion title="GET /api/tokens/abilities — list available abilities">
+    Returns the full set of abilities that can be granted to a Personal Access Token, grouped by category.
+
+    ```bash
+    curl http://<host>:8025/api/tokens/abilities \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Object with ability groups as keys, each containing an array of ability descriptors.
+  </Accordion>
+</AccordionGroup>
+
+## Available abilities
+
+When creating a token, pass ability strings in the `abilities` array. Include only the abilities your integration needs.
+
+### Server abilities (available to regular users)
+
+| Ability string | Description |
+|----------------|-------------|
+| `server:list` | List game servers |
+| `server:start` | Start a game server |
+| `server:stop` | Stop a game server |
+| `server:restart` | Restart a game server |
+| `server:update` | Trigger a game server file update |
+| `server:console` | Read and write to the game server console |
+| `server:rcon-console` | Send commands via the server RCON interface |
+| `server:rcon-players` | Manage players via RCON (kick, message, etc.) |
+| `server:tasks-manage` | Create, update, and delete scheduled server tasks |
+| `server:settings-manage` | Read and update server settings (variables) |
+
+### Admin abilities
+
+| Ability string | Description |
+|----------------|-------------|
+| `admin:server:create` | Create a new game server (admin action) |
+| `admin:gdaemon-task:read` | Read GameAP Daemon task details and output |
+
+<Note>
+  Admin abilities can only be granted to tokens owned by administrator accounts. Granting an admin ability to a regular user token has no effect because the underlying authorization check still verifies the account role.
+</Note>
+
+## Token format
+
+PATs follow the format `{token_id}|{token_secret}`. The `token_id` is the numeric `id` returned at creation time. The `token_secret` is a random string. You always pass the full value — including the `|` separator — as the Bearer token:
+
+```
+Authorization: Bearer 42|abc123def456ghi789jkl...
+```

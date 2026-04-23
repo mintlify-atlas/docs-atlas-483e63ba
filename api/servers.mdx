@@ -1,0 +1,447 @@
+---
+title: "REST API endpoints for game servers"
+description: "Full reference for game server endpoints: CRUD, start/stop/restart control, console, RCON, tasks, settings, and file manager operations."
+keywords: ["game server api", "server endpoints", "gameap servers", "server management api"]
+---
+
+The servers API covers the full lifecycle of game servers: creating and configuring them, controlling their state, accessing the console and RCON, managing scheduled tasks and settings, and performing file operations. Most read operations are available to regular authenticated users; create, update, and delete operations require admin privileges.
+
+## Server CRUD
+
+<AccordionGroup>
+  <Accordion title="GET /api/servers — list servers">
+    Returns a paginated list of game servers visible to the current user.
+
+    **Query parameters:**
+
+    <ParamField query="page" type="integer" default="1">
+      Page number.
+    </ParamField>
+    <ParamField query="per_page" type="integer" default="15">
+      Results per page.
+    </ParamField>
+    <ParamField query="sort" type="string">
+      Field to sort by.
+    </ParamField>
+
+    ```bash
+    curl http://<host>:8025/api/servers?page=1&per_page=15 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Paginated list of server objects.
+
+    ```json
+    {
+      "current_page": 1,
+      "data": [
+        {
+          "id": 1,
+          "name": "My CS Server",
+          "game_id": "cstrike",
+          "server_ip": "192.168.1.100",
+          "server_port": 27015,
+          "process_active": true
+        }
+      ],
+      "last_page": 3,
+      "per_page": 15,
+      "total": 42
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="POST /api/servers — create server">
+    Creates a new game server. Requires admin privileges.
+
+    <Warning>
+      This endpoint requires an admin account or a PAT with the `admin:server:create` ability.
+    </Warning>
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "My CS 1.6 Server",
+        "game_id": "cstrike",
+        "ds_id": 1,
+        "game_mod_id": 1,
+        "server_ip": "192.168.1.100",
+        "server_port": 27015,
+        "dir": "/home/servers/cstrike/server1"
+      }'
+    ```
+
+    **Response (200):** The created server object.
+  </Accordion>
+
+  <Accordion title="GET /api/servers/{id} — get server">
+    Returns a single server by its numeric ID.
+
+    ```bash
+    curl http://<host>:8025/api/servers/6 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Server object with fields including `id`, `uuid`, `name`, `game_id`, `ds_id`, `server_ip`, `server_port`, `process_active`, `vars`, and nested `game`, `game_mod`, and `node` objects.
+  </Accordion>
+
+  <Accordion title="PUT /api/servers/{id} — update server">
+    Updates a server's configuration. Requires admin privileges.
+
+    <Warning>
+      Admin only.
+    </Warning>
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/servers/6 \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Updated Server Name"}'
+    ```
+
+    **Response (200):** Updated server object.
+  </Accordion>
+
+  <Accordion title="DELETE /api/servers/{id} — delete server">
+    Permanently deletes a server. Requires admin privileges.
+
+    <Warning>
+      Admin only. This action cannot be undone.
+    </Warning>
+
+    ```bash
+    curl -X DELETE http://<host>:8025/api/servers/6 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>
+
+## Server control
+
+Control commands dispatch async daemon tasks. Each response includes a `gdaemonTaskId` you can use to track progress via the [tasks API](/api/tasks).
+
+<AccordionGroup>
+  <Accordion title="POST /api/servers/{server}/start — start server">
+    Starts the game server process.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/start \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    { "gdaemonTaskId": 123 }
+    ```
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/stop — stop server">
+    Stops the game server process gracefully.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/stop \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"gdaemonTaskId": 124}`
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/restart — restart server">
+    Restarts the game server process.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/restart \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"gdaemonTaskId": 125}`
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/update — update server files">
+    Triggers a server file update via the daemon.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/update \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"gdaemonTaskId": 126}`
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/install — install server">
+    Installs a newly created server's game files.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/install \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"gdaemonTaskId": 127}`
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/reinstall — reinstall server">
+    Deletes existing game files and reinstalls from scratch.
+
+    <Warning>
+      Existing server data will be deleted during reinstall.
+    </Warning>
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/reinstall \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"gdaemonTaskId": 128}`
+  </Accordion>
+</AccordionGroup>
+
+## Server status and query
+
+<AccordionGroup>
+  <Accordion title="GET /api/servers/{server}/status — get server status">
+    Returns the current process status of the server as known to the panel.
+
+    ```bash
+    curl http://<host>:8025/api/servers/6/status \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    {
+      "online": true,
+      "process_active": true
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="GET /api/servers/{server}/query — query server">
+    Queries the game server directly for live game data (players, map, etc.).
+
+    ```bash
+    curl http://<host>:8025/api/servers/6/query \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    {
+      "hostname": "My CS Server",
+      "map": "de_dust2",
+      "num_players": 12,
+      "max_players": 32
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Console
+
+<AccordionGroup>
+  <Accordion title="GET /api/servers/{server}/console — get console output">
+    Returns the buffered console output from the server.
+
+    Requires the `server:console` PAT ability.
+
+    ```bash
+    curl http://<host>:8025/api/servers/6/console \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    {
+      "output": "Server started on port 27015\nMap changed to de_dust2\n"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/console — send console command">
+    Sends a command to the server console.
+
+    Requires the `server:console` PAT ability.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/console \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"command": "status"}'
+    ```
+
+    <ParamField body="command" type="string" required>
+      The console command to execute on the server.
+    </ParamField>
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>
+
+## RCON
+
+<AccordionGroup>
+  <Accordion title="POST /api/servers/{server}/rcon — send RCON command">
+    Sends a raw RCON command to the game server.
+
+    Requires the `server:rcon-console` PAT ability.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/rcon \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"command": "status"}'
+    ```
+  </Accordion>
+
+  <Accordion title="GET /api/servers/{server}/rcon/players — list players">
+    Returns the current player list via RCON.
+
+    Requires the `server:rcon-players` PAT ability.
+
+    ```bash
+    curl http://<host>:8025/api/servers/6/rcon/players \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Scheduled tasks
+
+<AccordionGroup>
+  <Accordion title="GET /api/servers/{server}/tasks — list server tasks">
+    Returns the list of scheduled tasks configured for this server.
+
+    Requires the `server:tasks-manage` PAT ability.
+
+    ```bash
+    curl http://<host>:8025/api/servers/6/tasks \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="POST /api/servers/{server}/tasks — create server task">
+    Creates a new scheduled task for this server.
+
+    Requires the `server:tasks-manage` PAT ability.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/servers/6/tasks \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "command": "say Server restarting in 5 minutes",
+        "cron": "55 3 * * *",
+        "enabled": true
+      }'
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Settings (server variables)
+
+<AccordionGroup>
+  <Accordion title="GET /api/servers/{server}/settings — get settings">
+    Returns the list of configurable variables for the server (e.g., `maxplayers`, `hostname`).
+
+    Requires the `server:settings-manage` PAT ability.
+
+    ```bash
+    curl http://<host>:8025/api/servers/6/settings \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="PUT /api/servers/{server}/settings — update settings">
+    Updates one or more server variables.
+
+    Requires the `server:settings-manage` PAT ability.
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/servers/6/settings \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"vars": {"maxplayers": "24", "hostname": "My Updated Server"}}'
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>
+
+## File manager
+
+File manager endpoints let you browse, read, write, upload, and delete files on the server node.
+
+<AccordionGroup>
+  <Accordion title="GET /api/file-manager/{server}/content — browse files">
+    Returns a directory listing or the content of a single file.
+
+    ```bash
+    # List a directory
+    curl "http://<host>:8025/api/file-manager/6/content?path=/home/servers/cs" \
+      -H "Authorization: Bearer YOUR_TOKEN"
+
+    # Read a file
+    curl "http://<host>:8025/api/file-manager/6/content?path=/home/servers/cs/server.cfg" \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    <ParamField query="path" type="string" required>
+      The file or directory path on the server node.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="POST /api/file-manager/{server}/upload — upload file">
+    Uploads a file to the server using multipart form data.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/file-manager/6/upload \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -F "file=@./server.cfg" \
+      -F "path=/home/servers/cs/"
+    ```
+
+    <ParamField body="file" type="binary" required>
+      The file to upload.
+    </ParamField>
+    <ParamField body="path" type="string" required>
+      Destination directory path on the server node.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="POST /api/file-manager/{server}/delete — delete files">
+    Deletes one or more files or directories.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/file-manager/6/delete \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"items": ["/home/servers/cs/old.cfg"]}'
+    ```
+
+    <ParamField body="items" type="string[]" required>
+      Array of file or directory paths to delete.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="Other file manager endpoints">
+    Additional operations available on the file manager:
+
+    | Method | Endpoint | Description |
+    |--------|----------|-------------|
+    | `GET` | `/api/file-manager/{server}/tree` | Get directory tree |
+    | `GET` | `/api/file-manager/{server}/download` | Download a file |
+    | `POST` | `/api/file-manager/{server}/update-file` | Update file content |
+    | `POST` | `/api/file-manager/{server}/rename` | Rename a file or directory |
+    | `POST` | `/api/file-manager/{server}/create-directory` | Create a directory |
+    | `POST` | `/api/file-manager/{server}/create-file` | Create a new file |
+    | `POST` | `/api/file-manager/{server}/paste` | Copy or move files |
+    | `GET` | `/api/file-manager/{server}/stream-file` | Stream large file content |
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,220 @@
+---
+title: "REST API endpoints for nodes"
+description: "Full reference for node (dedicated server) endpoints: CRUD, daemon status, setup script, certificates, busy ports, and IP list retrieval."
+keywords: ["gameap nodes api", "dedicated server api", "node management", "daemon status"]
+---
+
+Nodes (also called dedicated servers) are the machines on which game servers run. Every node endpoint requires an admin account. The API also exposes these endpoints at `/api/dedicated_servers/*` as aliases for backward compatibility — both path prefixes behave identically.
+
+<Note>
+  All node endpoints require an administrator account. Regular users cannot access these endpoints.
+</Note>
+
+## Node CRUD
+
+<AccordionGroup>
+  <Accordion title="GET /api/nodes — list nodes">
+    Returns a paginated list of all nodes registered in the panel.
+
+    ```bash
+    curl http://<host>:8025/api/nodes?page=1&per_page=15 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Query parameters:**
+
+    <ParamField query="page" type="integer" default="1">
+      Page number.
+    </ParamField>
+    <ParamField query="per_page" type="integer" default="15">
+      Results per page.
+    </ParamField>
+    <ParamField query="sort" type="string">
+      Field to sort by.
+    </ParamField>
+
+    **Response (200):** Paginated list of node objects.
+  </Accordion>
+
+  <Accordion title="POST /api/nodes — create node">
+    Registers a new node with the panel.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/nodes \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Node 1",
+        "address": "192.168.1.10",
+        "location": "EU"
+      }'
+    ```
+
+    **Response (200):** The created node object.
+  </Accordion>
+
+  <Accordion title="GET /api/nodes/{id} — get node">
+    Returns a single node by its numeric ID.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/1 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Node object with fields including `id`, `name`, `address`, `location`, and connection details.
+  </Accordion>
+
+  <Accordion title="PUT /api/nodes/{id} — update node">
+    Updates a node's configuration.
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/nodes/1 \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Primary EU Node"}'
+    ```
+
+    **Response (200):** Updated node object.
+  </Accordion>
+
+  <Accordion title="DELETE /api/nodes/{id} — delete node">
+    Removes a node from the panel.
+
+    <Warning>
+      Deleting a node will affect all game servers assigned to it.
+    </Warning>
+
+    ```bash
+    curl -X DELETE http://<host>:8025/api/nodes/1 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>
+
+## Daemon status and logs
+
+<AccordionGroup>
+  <Accordion title="GET /api/nodes/{id}/daemon — get daemon status">
+    Returns the connection status and version information for the daemon running on the node.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/1/daemon \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Daemon status object including connection state and daemon version.
+  </Accordion>
+
+  <Accordion title="GET /api/nodes/{id}/logs.zip — download daemon logs">
+    Downloads the daemon log files as a ZIP archive.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/1/logs.zip \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -o node1-logs.zip
+    ```
+
+    **Response (200):** Binary ZIP file with `Content-Type: application/zip`.
+  </Accordion>
+</AccordionGroup>
+
+## Setup and certificates
+
+<AccordionGroup>
+  <Accordion title="GET /api/nodes/setup — get daemon setup script">
+    Returns the setup script and one-time setup token used to register and configure a new daemon on a node.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/setup \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    {
+      "script": "curl -s https://... | bash -s -- --token ...",
+      "token": "one-time-setup-token"
+    }
+    ```
+
+    <ResponseField name="script" type="string">
+      The shell command to run on the node to install and configure the daemon.
+    </ResponseField>
+    <ResponseField name="token" type="string">
+      A one-time token used by the daemon setup script to authenticate with the panel.
+    </ResponseField>
+  </Accordion>
+
+  <Accordion title="GET /api/nodes/certificates.zip — download certificates">
+    Downloads client TLS certificates for daemon communication as a ZIP archive.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/certificates.zip \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -o certificates.zip
+    ```
+
+    **Response (200):** Binary ZIP file containing client certificate files.
+  </Accordion>
+</AccordionGroup>
+
+## Node summary and resources
+
+<AccordionGroup>
+  <Accordion title="GET /api/nodes/summary — node summary">
+    Returns aggregate statistics across all nodes (total count, active nodes, etc.).
+
+    ```bash
+    curl http://<host>:8025/api/nodes/summary \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="GET /api/nodes/{node}/busy_ports — list busy ports">
+    Returns the list of ports currently in use on the node. Useful when assigning ports to new game servers.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/1/busy_ports \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    [27015, 27016, 27017, 7777]
+    ```
+  </Accordion>
+
+  <Accordion title="GET /api/nodes/{node}/ip_list — list IP addresses">
+    Returns the IP addresses configured on the node, which can be used when assigning a game server IP.
+
+    ```bash
+    curl http://<host>:8025/api/nodes/1/ip_list \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    ["192.168.1.10", "10.0.0.5"]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Alias paths
+
+All node endpoints are also available under `/api/dedicated_servers/*` for backward compatibility. For example:
+
+| Primary path | Alias |
+|---|---|
+| `GET /api/nodes` | `GET /api/dedicated_servers` |
+| `GET /api/nodes/{id}` | `GET /api/dedicated_servers/{id}` |
+| `GET /api/nodes/setup` | `GET /api/dedicated_servers/setup` |
+| `GET /api/nodes/certificates.zip` | `GET /api/dedicated_servers/certificates.zip` |
+| `GET /api/nodes/{node}/busy_ports` | `GET /api/dedicated_servers/{node}/busy_ports` |
+| `GET /api/nodes/{node}/ip_list` | `GET /api/dedicated_servers/{node}/ip_list` |
+
+New integrations should use the `/api/nodes/*` paths.

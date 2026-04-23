@@ -1,0 +1,246 @@
+---
+title: "REST API endpoints for games and mods"
+description: "Full reference for game and game mod endpoints: CRUD operations, import from Pelican eggs or GameAP YAML, export, and upgrade from remote."
+keywords: ["games api", "game mods api", "pelican egg import", "gameap games", "game management"]
+---
+
+Games define which game types can be hosted on GameAP nodes, and game mods (modifications) define specific server configurations within a game. All game and mod management endpoints require an admin account. The import and export endpoints let you migrate game configurations between GameAP installations or from Pelican/Pterodactyl setups.
+
+<Note>
+  All endpoints on this page require an administrator account.
+</Note>
+
+## Games
+
+<AccordionGroup>
+  <Accordion title="GET /api/games — list games">
+    Returns the full list of games configured in the panel.
+
+    ```bash
+    curl http://<host>:8025/api/games \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Array of game objects, each with `code`, `name`, `engine`, and related metadata.
+  </Accordion>
+
+  <Accordion title="POST /api/games — create game">
+    Creates a new game entry.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/games \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "code": "cstrike",
+        "name": "Counter-Strike 1.6",
+        "engine": "goldsrc"
+      }'
+    ```
+
+    **Response (200):** The created game object.
+  </Accordion>
+
+  <Accordion title="GET /api/games/{code} — get game">
+    Returns a single game by its string code identifier.
+
+    ```bash
+    curl http://<host>:8025/api/games/cstrike \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Game object.
+  </Accordion>
+
+  <Accordion title="PUT /api/games/{code} — update game">
+    Updates a game's configuration by code.
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/games/cstrike \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Counter-Strike 1.6 (Updated)"}'
+    ```
+
+    **Response (200):** Updated game object.
+  </Accordion>
+
+  <Accordion title="DELETE /api/games/{code} — delete game">
+    Deletes a game by code. Fails if servers are still using this game.
+
+    ```bash
+    curl -X DELETE http://<host>:8025/api/games/cstrike \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+
+  <Accordion title="GET /api/games/{code}/mods — list mods for a game">
+    Returns all game mods associated with a specific game code.
+
+    ```bash
+    curl http://<host>:8025/api/games/cstrike/mods \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Array of game mod objects for the specified game.
+  </Accordion>
+</AccordionGroup>
+
+## Import and export
+
+<AccordionGroup>
+  <Accordion title="POST /api/games/upgrade — upgrade from remote">
+    Downloads and upgrades the games database from the GameAP global repository.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/games/upgrade \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+
+  <Accordion title="POST /api/games/import/pelican-egg — import Pelican egg">
+    Imports a Pelican or Pterodactyl egg file and creates a corresponding game and mod entry. The egg file can be JSON (PTDL_v2 or PLCN_v3 format) or YAML (PLCN_v3 format).
+
+    The importer:
+    - Creates a new game with a code derived from the egg name
+    - Creates a "Default" game mod with startup command and variables
+    - Stores the full egg metadata for future reference
+
+    ```bash
+    curl -X POST http://<host>:8025/api/games/import/pelican-egg \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      --data-binary @egg-counter-strike.json
+    ```
+
+    You can also pass the egg as YAML:
+
+    ```bash
+    curl -X POST http://<host>:8025/api/games/import/pelican-egg \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/x-yaml" \
+      --data-binary @egg-counter-strike.yaml
+    ```
+
+    **Query parameters (optional):**
+
+    <ParamField query="name" type="string">
+      Override the game name inferred from the egg.
+    </ParamField>
+    <ParamField query="code" type="string">
+      Override the game code inferred from the egg name. Must be 2–16 characters matching `^[a-z0-9_-]+$`.
+    </ParamField>
+
+    **Response (200):** Object describing the imported game and mod.
+  </Accordion>
+
+  <Accordion title="POST /api/games/import/gameap — import GameAP YAML">
+    Imports a GameAP YAML configuration file. If a game or mod with the same code/name already exists, it is updated (upsert behavior). Existing mods not present in the import file are preserved.
+
+    The YAML file must contain:
+    - `schema_version: "1.0"`
+    - `game` object with `code`, `name`, and `engine`
+    - Optional `mods` array
+
+    ```bash
+    curl -X POST http://<host>:8025/api/games/import/gameap \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/x-yaml" \
+      --data-binary @cstrike.gameap.yaml
+    ```
+
+    **Constraints:**
+    - Maximum body size: 1 MB
+    - Game code: 2–16 characters, pattern `^[a-z0-9_-]+$`
+    - Duplicate mod names in the same file are not allowed
+
+    **Response (200):** Import result object.
+  </Accordion>
+
+  <Accordion title="GET /api/games/{code}/export — export game">
+    Exports a game and all its mods to GameAP YAML format. The response is a downloadable YAML file.
+
+    ```bash
+    curl http://<host>:8025/api/games/cstrike/export \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -o cstrike.gameap.yaml
+    ```
+
+    **Response (200):** YAML file with `Content-Type: application/x-yaml` and a `Content-Disposition` header indicating the filename (e.g., `attachment; filename="cstrike.gameap.yaml"`).
+
+    The exported file contains `schema_version`, `exported_at`, `exported_by`, `game`, and `mods` fields.
+  </Accordion>
+</AccordionGroup>
+
+## Game mods
+
+Game mods define specific server configurations within a game (for example, "Vanilla", "Classic DM", or a specific map rotation). Each mod is identified by a numeric ID.
+
+<AccordionGroup>
+  <Accordion title="GET /api/game_mods — list all mods">
+    Returns the complete list of game mods across all games.
+
+    ```bash
+    curl http://<host>:8025/api/game_mods \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Array of game mod objects.
+  </Accordion>
+
+  <Accordion title="POST /api/game_mods — create mod">
+    Creates a new game mod.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/game_mods \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "game_id": "cstrike",
+        "name": "Default",
+        "start_cmd": "./hlds_run -game cstrike +map de_dust2 +maxplayers 32"
+      }'
+    ```
+
+    **Response (200):** The created game mod object.
+  </Accordion>
+
+  <Accordion title="GET /api/game_mods/{id} — get mod">
+    Returns a single game mod by numeric ID.
+
+    ```bash
+    curl http://<host>:8025/api/game_mods/5 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Game mod object.
+  </Accordion>
+
+  <Accordion title="PUT /api/game_mods/{id} — update mod">
+    Updates a game mod by ID.
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/game_mods/5 \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Default Deathmatch"}'
+    ```
+
+    **Response (200):** Updated game mod object.
+  </Accordion>
+
+  <Accordion title="DELETE /api/game_mods/{id} — delete mod">
+    Deletes a game mod by ID.
+
+    ```bash
+    curl -X DELETE http://<host>:8025/api/game_mods/5 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>

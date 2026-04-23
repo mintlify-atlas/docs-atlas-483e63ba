@@ -1,0 +1,185 @@
+---
+title: "Managing client certificates in GameAP"
+description: "Set up and manage TLS client certificates for secure GameAP daemon-to-panel communication and configure HTTPS for your panel installation."
+keywords: ["certificates", "TLS", "client certificate", "HTTPS", "daemon", "secure communication"]
+---
+
+GameAP uses TLS client certificates to establish mutual authentication between the panel and GameAP Daemon agents running on your nodes. Each daemon node presents a client certificate when connecting to the panel, ensuring that only trusted agents can communicate with your installation.
+
+## What client certificates are for
+
+When a GameAP Daemon connects to the panel, it must authenticate itself using a TLS client certificate. The panel checks the certificate fingerprint and expiry to decide whether to trust the connection. This prevents unauthorized daemons from registering as nodes or receiving sensitive configuration data.
+
+Client certificates are separate from the TLS certificate used to serve the panel over HTTPS. A client certificate authenticates the _daemon_ to the _panel_; a server TLS certificate authenticates the _panel_ to _browsers_.
+
+## Downloading the certificates bundle
+
+The panel exposes a pre-packaged ZIP archive containing the certificates required by daemon nodes:
+
+```bash
+curl -s -O "https://your-gameap.example.com/api/nodes/certificates.zip" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+Extract the archive and place the files on the daemon host according to the GameAP Daemon documentation. The bundle includes the certificate and private key needed for the daemon to authenticate to the panel.
+
+## Managing client certificates via the API
+
+### Listing certificates
+
+To view all registered client certificates:
+
+```bash
+curl -s "https://your-gameap.example.com/api/client_certificates" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+Each certificate entry includes its `id`, `fingerprint`, and `expires` timestamp. You can use the fingerprint to verify a certificate on a daemon host.
+
+### Creating a client certificate
+
+<Steps>
+  <Step title="Decide whether to auto-generate or bring your own certificate">
+    GameAP can auto-generate a client certificate for you — just send an empty JSON body. Alternatively, you can provide PEM-encoded certificate and private key content if you want to use your own CA-signed certificates.
+
+    <Note>
+      Auto-generated certificates are self-signed. They are suitable for most deployments. For strict PKI environments, provide your own CA-signed certificate and key.
+    </Note>
+  </Step>
+  <Step title="Create the certificate via the API">
+    Send a `POST` request to `/api/client_certificates`. You can either provide PEM-encoded certificate and key content, or leave the body empty to have the panel auto-generate a certificate.
+
+    **Auto-generate (recommended):**
+
+    ```bash
+    curl -s -X POST "https://your-gameap.example.com/api/client_certificates" \
+      -H "Authorization: Bearer YOUR_API_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    **Provide your own certificate:**
+
+    ```bash
+    curl -s -X POST "https://your-gameap.example.com/api/client_certificates" \
+      -H "Authorization: Bearer YOUR_API_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "certificate": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+        "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
+        "private_key_pass": ""
+      }'
+    ```
+  </Step>
+  <Step title="Verify the certificate was registered">
+    The response returns the certificate's `id`, `fingerprint`, and PEM content:
+
+    ```json
+    {
+      "id": 3,
+      "fingerprint": "AA:BB:CC:DD:...",
+      "certificate": "-----BEGIN CERTIFICATE-----\n...",
+      "private_key": "-----BEGIN PRIVATE KEY-----\n..."
+    }
+    ```
+
+    Confirm the `fingerprint` matches what you expect before distributing the certificate to daemon hosts.
+  </Step>
+  <Step title="Distribute the certificate to the daemon host">
+    Copy the certificate and private key to the machine running GameAP Daemon. Configure the daemon to use these files for its outbound TLS connection to the panel. See the GameAP Daemon documentation for the exact configuration keys.
+  </Step>
+</Steps>
+
+### Deleting a certificate
+
+To remove a certificate and prevent any daemon using it from connecting:
+
+```bash
+curl -s -X DELETE "https://your-gameap.example.com/api/client_certificates/3" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+<Warning>
+  Deleting a certificate immediately blocks any daemon that presents it. If active daemons are using the certificate, they will lose connectivity to the panel.
+</Warning>
+
+## Certificate lifecycle
+
+Monitor certificate expiry dates using the `GET /api/client_certificates` response. Rotate certificates before they expire by uploading a new certificate, updating the daemon configuration to use the new files, and then deleting the old certificate entry from the panel.
+
+## Configuring TLS for the panel itself
+
+To serve the GameAP panel over HTTPS, provide a server TLS certificate and key via environment variables. You can supply the file paths or the PEM-encoded content directly.
+
+### Setting up TLS with a reverse proxy
+
+The recommended approach for production is to terminate TLS at a reverse proxy (such as nginx or Caddy) and forward plain HTTP to the GameAP panel. This lets you use Let's Encrypt or your existing certificate management tooling.
+
+<Steps>
+  <Step title="Obtain a TLS certificate for your domain">
+    Use Let's Encrypt, your organization's CA, or another trusted certificate authority to issue a certificate for your GameAP domain.
+  </Step>
+  <Step title="Configure your reverse proxy">
+    Point the reverse proxy at the GameAP panel's HTTP port (default `8025`) and configure TLS termination on port 443.
+
+    Example nginx configuration:
+
+    ```nginx
+    server {
+        listen 443 ssl;
+        server_name gameap.example.com;
+
+        ssl_certificate     /etc/ssl/gameap/fullchain.pem;
+        ssl_certificate_key /etc/ssl/gameap/privkey.pem;
+
+        location / {
+            proxy_pass http://127.0.0.1:8025;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+    ```
+  </Step>
+  <Step title="Redirect HTTP to HTTPS (optional)">
+    To force all traffic over HTTPS, either configure the redirect in your reverse proxy or set the `TLS_FORCE_HTTPS=true` environment variable in GameAP to enable the built-in redirect.
+  </Step>
+</Steps>
+
+### Direct TLS (without a reverse proxy)
+
+If you prefer to have GameAP terminate TLS directly, set the following environment variables:
+
+| Variable | Description |
+|---|---|
+| `TLS_CERT_FILE` | Path to the TLS certificate file (PEM format) |
+| `TLS_KEY_FILE` | Path to the TLS private key file (PEM format) |
+| `TLS_CERT` | TLS certificate content (PEM or base64 encoded) |
+| `TLS_KEY` | TLS private key content (PEM or base64 encoded) |
+| `TLS_FORCE_HTTPS` | Set to `true` to redirect HTTP requests to HTTPS |
+| `HTTPS_PORT` | HTTPS listen port (default: `443`) |
+
+Example using file paths:
+
+```bash
+TLS_CERT_FILE=/etc/ssl/gameap/fullchain.pem
+TLS_KEY_FILE=/etc/ssl/gameap/privkey.pem
+TLS_FORCE_HTTPS=true
+HTTPS_PORT=443
+```
+
+<Note>
+  When using `TLS_CERT` and `TLS_KEY` (inline content instead of file paths), you can provide the values as base64-encoded strings or as raw PEM blocks.
+</Note>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Nodes guide" icon="network-wired" href="/guides/nodes">
+    Add and configure daemon nodes that connect to the panel.
+  </Card>
+  <Card title="Installation configuration" icon="gear" href="/installation/configuration">
+    Full reference for GameAP environment variables.
+  </Card>
+</CardGroup>

@@ -1,0 +1,67 @@
+---
+title: "GameAP: Free Open-Source Game Server Control Panel"
+description: "GameAP is a free, MIT-licensed game server management panel. Deploy and control servers across multiple nodes using the web UI or REST API."
+keywords: ["game server panel", "open source", "game server management", "gameap"]
+---
+
+GameAP is a free, open-source game server management panel that lets you deploy, monitor, and control game servers across one or more nodes — all from a single web interface. It ships as a single binary with no external dependencies required, and runs on Linux, Windows, and macOS with support for multiple database backends.
+
+<Note>
+  GameAP is released under the [MIT License](https://github.com/gameap/gameap/blob/main/LICENSE). It is completely free to use, self-host, and modify.
+</Note>
+
+## Key capabilities
+
+- **Web UI and REST API** — Manage servers, nodes, users, and files through a browser or programmatically via the REST API.
+- **Multi-node support** — Distribute game servers across any number of dedicated machines. Each node runs a lightweight GameAP Daemon agent.
+- **Games and mods catalog** — Define supported games, configure mod profiles, or import them from Pelican egg format.
+- **File manager** — Browse, edit, upload, and download server files directly in the browser.
+- **Scheduled tasks** — Automate server restarts, updates, and custom commands on a schedule.
+- **Role-based access control** — Control which users can access which servers and perform which actions.
+- **Plugin system** — Extend GameAP with WebAssembly backend plugins and Vue.js frontend components.
+
+## Supported operating systems
+
+GameAP can be installed on the following operating systems:
+
+- Linux (Ubuntu, Debian, CentOS, and other distributions)
+- Windows Server 2016, 2019, 2022, 2025; Windows 10 and 11
+- macOS
+
+The GameAP Daemon agent that runs on each game server node supports the same platforms.
+
+## Supported databases
+
+| Database | Notes |
+|---|---|
+| PostgreSQL | Recommended for production |
+| MySQL / MariaDB | Fully supported |
+| SQLite | Suitable for single-node or low-traffic deployments |
+| In-memory | For testing only — data is not persisted across restarts |
+
+## Architecture summary
+
+GameAP follows a three-tier architecture: a web panel, daemon agents, and game servers.
+
+- The **web panel** is a Go backend serving a Vue.js single-page application. Administrators access it through a browser over HTTP or HTTPS.
+- The **GameAP Daemon** runs as a separate lightweight agent on each node that hosts game servers. The panel communicates with each daemon via the daemon's REST API to start, stop, monitor, and configure game server processes.
+- **Game servers** run as managed processes under the daemon on each node.
+
+See the [architecture overview](/architecture) for a detailed breakdown of each component.
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Get GameAP running with Docker in under five minutes.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand how the panel, daemons, and game servers fit together.
+  </Card>
+  <Card title="Docker installation" icon="docker" href="/installation/docker">
+    Full Docker and Docker Compose deployment guide.
+  </Card>
+  <Card title="API overview" icon="code" href="/api/overview">
+    Automate game server management with the REST API.
+  </Card>
+</CardGroup>

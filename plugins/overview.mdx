@@ -1,0 +1,118 @@
+---
+title: "GameAP plugin system overview"
+description: "Extend GameAP with WebAssembly backend plugins and optional Vue frontend bundles. Plugins run in a secure WASM sandbox with typed host function libraries."
+keywords: ["plugins", "wasm", "webassembly", "extensions", "plugin system"]
+---
+
+GameAP's plugin system lets you extend the panel's functionality without modifying core code. Plugins are compiled to WebAssembly and run in a sandboxed environment, keeping the host process safe while still giving plugins access to servers, users, nodes, and other resources through well-defined host function libraries.
+
+## How plugins work
+
+Each plugin is a `.wasm` file compiled from Go (or any language that targets WebAssembly). The Plugin Manager loads these files at startup, wires up the host function libraries, and routes events and HTTP requests to the correct plugin.
+
+A plugin can optionally include a compiled Vue frontend bundle. When present, the backend serves that JavaScript bundle at runtime so the plugin can add pages, tabs, widgets, and other UI elements to the GameAP web interface.
+
+<Steps>
+  <Step title="Host">
+    The GameAP server process manages plugin lifecycle: loading `.wasm` files, providing configuration, and dispatching events.
+  </Step>
+  <Step title="Plugin Manager">
+    Handles plugin loading and unloading, lifecycle management (Initialize / Shutdown), and event dispatching to subscribed plugins.
+  </Step>
+  <Step title="WASM runtime (wazero)">
+    Runs each plugin in an isolated WebAssembly sandbox. Plugins cannot access the host filesystem or network directly — all external interactions go through host function libraries.
+  </Step>
+  <Step title="Plugin (.wasm)">
+    Implements the `PluginService` interface: reports its metadata, subscribes to events, handles events, and optionally registers custom HTTP routes or returns a compiled frontend bundle.
+  </Step>
+</Steps>
+
+## Plugin sources
+
+Plugins can reach your GameAP installation in two ways:
+
+- **Plugin Store** — Browse and install community and premium plugins directly from the GameAP web UI. The store handles version selection, download, and hash verification automatically.
+- **Manual upload** — Upload a `.wasm` file you built yourself or obtained elsewhere. A dry-run step validates the file before it is permanently installed.
+
+## Security model
+
+<Note>
+  Plugins run inside a WebAssembly sandbox managed by [wazero](https://wazero.io). They have no direct access to the host filesystem or network. All I/O goes through typed host function libraries, and repository operations respect the same RBAC permissions enforced for API requests.
+</Note>
+
+## Event types
+
+Plugins subscribe to one or more event types. GameAP calls `HandleEvent` on every plugin subscribed to a given event. `PRE_*` events can be cancelled by returning `ShouldCancel: true`, which prevents the operation from proceeding.
+
+<AccordionGroup>
+  <Accordion title="Server lifecycle events">
+
+| Event | Trigger | Cancellable |
+|---|---|---|
+| `SERVER_PRE_START` | Before server start task created | Yes |
+| `SERVER_POST_START` | After server start task created | No |
+| `SERVER_PRE_STOP` | Before server stop task created | Yes |
+| `SERVER_POST_STOP` | After server stop task created | No |
+| `SERVER_PRE_RESTART` | Before server restart task created | Yes |
+| `SERVER_POST_RESTART` | After server restart task created | No |
+| `SERVER_PRE_INSTALL` | Before server install task created | Yes |
+| `SERVER_POST_INSTALL` | After server install task created | No |
+| `SERVER_PRE_UPDATE` | Before server update task created | Yes |
+| `SERVER_POST_UPDATE` | After server update task created | No |
+| `SERVER_PRE_REINSTALL` | Before server reinstall workflow | Yes |
+| `SERVER_POST_REINSTALL` | After server reinstall workflow | No |
+| `SERVER_PRE_DELETE` | Before server delete task created | Yes |
+| `SERVER_POST_DELETE` | After server delete task created | No |
+
+  </Accordion>
+  <Accordion title="Server database events">
+
+| Event | Trigger | Cancellable |
+|---|---|---|
+| `SERVER_CREATED` | After server created in database | No |
+| `SERVER_UPDATED` | After server updated in database | No |
+| `SERVER_DELETED` | After server deleted from database | No |
+
+  </Accordion>
+  <Accordion title="Daemon task events">
+
+| Event | Trigger | Cancellable |
+|---|---|---|
+| `DAEMON_TASK_CREATED` | After daemon task created | No |
+| `DAEMON_TASK_COMPLETED` | After daemon task completed successfully | No |
+| `DAEMON_TASK_FAILED` | After daemon task failed | No |
+
+  </Accordion>
+</AccordionGroup>
+
+## Host function libraries
+
+Plugins call into the host through typed library modules. Each module is imported by name inside the WASM module.
+
+| Library | Purpose |
+|---|---|
+| `gameap-log` | Write debug, info, warn, and error log messages |
+| `gameap-cache` | Get, set, and delete cache entries with a TTL |
+| `gameap-http` | Make outbound HTTP requests to external APIs |
+| `gameap-crypto` | Generate random values and hash/verify passwords with Argon2id |
+| `gameap-servercontrol` | Start, stop, restart, update, install, and reinstall servers |
+| `gameap-nodefs` | Read, write, copy, move, and delete files on daemon nodes |
+| `gameap-nodecmd` | Execute shell commands on daemon nodes |
+| `gameap-servers` | Query and filter server records |
+| `gameap-games` | Look up game definitions |
+| `gameap-gamemods` | Look up game mod definitions |
+| `gameap-users` | Look up user records |
+| `gameap-nodes` | Look up node records |
+| `gameap-daemontasks` | Create daemon tasks |
+| `gameap-serversettings` | Read and write per-server settings |
+
+## Developing a plugin
+
+<CardGroup cols={2}>
+  <Card title="Backend plugin (WASM)" icon="code" href="/plugins/developing-backend">
+    Write a Go plugin that subscribes to events, calls host libraries, and optionally registers HTTP endpoints. Build it to a `.wasm` file with TinyGo or standard Go.
+  </Card>
+  <Card title="Frontend plugin (Vue)" icon="browser" href="/plugins/developing-frontend">
+    Build a Vue component bundle that adds pages, server tabs, dashboard widgets, and file editors to the GameAP web interface.
+  </Card>
+</CardGroup>

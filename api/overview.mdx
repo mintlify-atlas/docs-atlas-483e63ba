@@ -1,0 +1,178 @@
+---
+title: "GameAP REST API overview"
+description: "An introduction to the GameAP v4 REST API: base URL, versioning, authentication methods, response formats, and the health endpoint."
+keywords: ["gameap api", "rest api", "api overview", "game server api"]
+---
+
+The GameAP REST API lets you manage game servers, nodes, users, and files programmatically. It is served from the same host as the panel on port 8025 by default, and every endpoint is versioned under `/api`. All requests and responses use JSON unless otherwise noted.
+
+## Base URL
+
+The API uses a relative base URL — it is served from the same host and port as the GameAP panel. By default, this is port `8025`.
+
+```
+http://<your-panel-host>:8025/api
+```
+
+## API version
+
+The current API version is **v4**. The version is reflected in the `info.version` field of the OpenAPI specification but is not part of the URL path.
+
+## Authentication methods
+
+The API supports three authentication methods. Choose the one that fits your use case.
+
+### Bearer token (JWT/PASETO)
+
+Obtain a short-lived session token by logging in via `POST /api/auth/login`. Include it in every subsequent request using the `Authorization` header.
+
+```bash
+Authorization: Bearer eyJhbG...
+```
+
+Tokens are valid for 24 hours. If you pass `remember: "on"` at login, the token remains valid for 30 days.
+
+### Personal Access Token (PAT)
+
+Create a long-lived token via `POST /api/tokens`. PATs have a specific format and support scoped abilities (permissions).
+
+```
+{token_id}|{token_secret}
+```
+
+**Example:** `42|abc123def456xyz`
+
+Use a PAT in the same `Authorization` header as a Bearer token:
+
+```bash
+Authorization: Bearer 42|abc123def456xyz
+```
+
+### Daemon token
+
+The daemon token is used exclusively for `/gdaemon_api/*` endpoints. It is assigned to each node for daemon-to-API communication. Pass it in the `X-Auth-Token` header.
+
+```bash
+X-Auth-Token: daemon-api-token-here
+```
+
+<Note>
+  Standard API clients should use Bearer tokens or PATs. The daemon token is intended only for the GameAP Daemon agent running on each node.
+</Note>
+
+## Health check endpoint
+
+Use the health endpoint to verify that the panel is running and reachable.
+
+```bash
+curl http://<your-panel-host>:8025/api/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok"
+}
+```
+
+## Response formats
+
+All responses follow one of three structures depending on the operation.
+
+<Tabs>
+  <Tab title="Success">
+    Returned for operations that succeed but return no resource data (such as delete operations).
+
+    ```json
+    {
+      "status": "ok"
+    }
+    ```
+
+    <ResponseField name="status" type="string" required>
+      Always `"ok"` on success.
+    </ResponseField>
+  </Tab>
+
+  <Tab title="Error">
+    Returned when the request fails. The HTTP status code also reflects the error class.
+
+    ```json
+    {
+      "status": "error",
+      "error": "Validation failed",
+      "message": "The name field is required.",
+      "http_code": 422
+    }
+    ```
+
+    <ResponseField name="status" type="string" required>
+      Always `"error"` on failure.
+    </ResponseField>
+    <ResponseField name="error" type="string">
+      Short error category.
+    </ResponseField>
+    <ResponseField name="message" type="string">
+      Human-readable description of what went wrong.
+    </ResponseField>
+    <ResponseField name="http_code" type="integer">
+      HTTP status code echoed in the response body.
+    </ResponseField>
+  </Tab>
+
+  <Tab title="Paginated">
+    Returned by list endpoints. The `data` array contains the actual records.
+
+    ```json
+    {
+      "current_page": 1,
+      "data": [...],
+      "from": 1,
+      "last_page": 5,
+      "per_page": 15,
+      "total": 75
+    }
+    ```
+
+    <ResponseField name="current_page" type="integer" required>
+      The current page number (1-indexed).
+    </ResponseField>
+    <ResponseField name="data" type="array" required>
+      Array of records for the current page.
+    </ResponseField>
+    <ResponseField name="from" type="integer">
+      Index of the first item on this page (1-indexed).
+    </ResponseField>
+    <ResponseField name="last_page" type="integer" required>
+      Total number of pages.
+    </ResponseField>
+    <ResponseField name="per_page" type="integer" required>
+      Number of records per page.
+    </ResponseField>
+    <ResponseField name="total" type="integer" required>
+      Total number of records across all pages.
+    </ResponseField>
+  </Tab>
+</Tabs>
+
+## Common HTTP status codes
+
+| Code | Meaning |
+|------|---------|
+| 200  | Request succeeded |
+| 401  | Missing or invalid authentication token |
+| 403  | Authenticated but not authorized (e.g., non-admin accessing admin endpoint) |
+| 404  | Resource not found |
+| 422  | Validation error — check `message` for details |
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Log in and create Personal Access Tokens.
+  </Card>
+  <Card title="Servers" icon="server" href="/api/servers">
+    Manage game servers via the API.
+  </Card>
+</Columns>

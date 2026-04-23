@@ -1,80 +1,230 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with GameAP: deploy and manage game servers"
+description: "Deploy GameAP using Docker Compose, access the web panel, connect a GameAP Daemon node, and launch your first game server — all in minutes."
+keywords: ["gameap quickstart", "docker compose", "game server setup", "gameap install"]
 ---
 
-## Get started in three steps
+The fastest way to get GameAP running is with Docker Compose. This guide walks you through launching the panel, connecting a node with the GameAP Daemon, and creating your first game server.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+  GameAP listens on port **8025** by default. Make sure this port is open on your host machine before proceeding.
+</Note>
 
-### Step 1: Set up your local environment
+<Steps>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Step title="Start GameAP with Docker Compose">
 
-### Step 2: Deploy your changes
+Clone the repository and start all services with a single command. The default `docker-compose.yml` starts GameAP with PostgreSQL and Redis.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+```bash
+git clone https://github.com/gameap/gameap.git
+cd gameap
+docker-compose up -d
+```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+This starts three containers:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+- `gameap` — the web panel, exposed on port 8025
+- `gameap-postgres` — PostgreSQL 17 database
+- `gameap-redis` — Redis 7 cache
 
-### Step 3: Go live
+The full `docker-compose.yml` from the repository:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```yaml
+services:
+  gameap:
+    image: gameap/gameap:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: dev
+        BUILD_DATE: ${BUILD_DATE:-2025-01-01T00:00:00Z}
+    container_name: gameap
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /var/lib/gameap/files && /usr/bin/gameap"]
+    ports:
+      - "8025:8025"
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8025
+      DATABASE_DRIVER: postgres
+      DATABASE_URL: postgres://gameap:gameap@postgres:5432/gameap?sslmode=disable
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production}
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+      CACHE_DRIVER: redis
+      CACHE_REDIS_ADDR: redis:6379
+      FILES_DRIVER: local
+      FILES_LOCAL_BASE_PATH: /var/lib/gameap/files
+      LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+    volumes:
+      - gameap-storage:/var/lib/gameap
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - gameap-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/api/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: gameap-postgres
+    environment:
+      POSTGRES_DB: gameap
+      POSTGRES_USER: gameap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gameap}
+    volumes:
+      - gameap-postgres-data:/var/lib/postgresql/data
+    networks:
+      - gameap-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gameap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: gameap-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - gameap-redis-data:/data
+    networks:
+      - gameap-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  gameap-storage:
+    driver: local
+  gameap-postgres-data:
+    driver: local
+  gameap-redis-data:
+    driver: local
+
+networks:
+  gameap-network:
+    driver: bridge
+```
+
+To configure secrets and other options before starting, create a `.env` file in the same directory:
+
+```bash
+# Security - REQUIRED IN PRODUCTION
+ENCRYPTION_KEY=change-me-to-random-32-char-key
+AUTH_SECRET=change-me-to-random-32-char-secret
+
+# Database
+DATABASE_DRIVER=postgres
+DATABASE_URL=postgres://gameap:gameap@postgres:5432/gameap?sslmode=disable
+POSTGRES_PASSWORD=gameap
+
+# Cache
+CACHE_DRIVER=redis
+CACHE_REDIS_ADDR=redis:6379
+
+# File storage
+FILES_DRIVER=local
+FILES_LOCAL_BASE_PATH=/var/lib/gameap/files
+
+# Logging
+LOGGER_LEVEL=info
+
+# Authentication
+AUTH_SERVICE=paseto
+```
+
+<Warning>
+  The default `ENCRYPTION_KEY` and `AUTH_SECRET` values in the repository are placeholders. **Always set strong, randomly generated values in production.** These secrets protect your session tokens and encrypted data. If you change them after the panel has been used, existing sessions and encrypted records will be invalidated.
+</Warning>
+
+</Step>
+
+<Step title="Access the panel">
+
+Once the containers are healthy, open your browser and navigate to:
+
+```
+http://localhost:8025
+```
+
+On first launch, GameAP will prompt you to create an administrator account. Complete the setup wizard to configure the initial admin user and verify the database connection is working.
+
+To confirm the containers are running and healthy:
+
+```bash
+docker-compose ps
+```
+
+To follow panel logs in real time:
+
+```bash
+docker-compose logs -f gameap
+```
+
+</Step>
+
+<Step title="Add a node (daemon setup)">
+
+Each machine that will host game servers needs the **GameAP Daemon** installed. The daemon is a lightweight agent that the panel communicates with to manage game server processes.
+
+In the web UI:
+
+1. Navigate to **Nodes** in the sidebar.
+2. Click **Add node**.
+3. Fill in the node's hostname or IP address and the daemon port (default: `31717`).
+4. Copy the generated setup script and run it on the target machine as root.
+
+The setup script installs the GameAP Daemon, configures it to connect back to your panel, and starts it as a system service. After the node is registered, it will appear as **online** in the Nodes list.
+
+For more details on daemon installation and configuration options, see the [nodes guide](/guides/nodes).
+
+</Step>
+
+<Step title="Create your first game server">
+
+With a node online, you can launch your first game server:
+
+1. Navigate to **Game Servers** in the sidebar.
+2. Click **Create server**.
+3. Select the node where the server will run.
+4. Choose a game from the catalog (for example, Minecraft or Counter-Strike 2).
+5. Configure the server name, ports, and any game-specific settings.
+6. Click **Create** — GameAP will install the server files on the node and start the process automatically.
+
+Once created, you can start, stop, restart, view logs, and manage files for the server directly from the panel.
+
+For more detail on server options and advanced configuration, see the [game servers guide](/guides/game-servers).
+
+</Step>
+
+</Steps>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Docker installation guide" icon="docker" href="/installation/docker">
+    Full reference for Docker and Docker Compose deployment options, including MySQL and SQLite variants.
+  </Card>
+  <Card title="Architecture overview" icon="sitemap" href="/architecture">
+    Learn how the panel, daemon agents, and game servers interact.
+  </Card>
+  <Card title="Games and mods" icon="gamepad" href="/guides/games-and-mods">
+    Add games to the catalog or import from Pelican egg format.
+  </Card>
+  <Card title="API reference" icon="code" href="/api/overview">
+    Automate server management with the REST API.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

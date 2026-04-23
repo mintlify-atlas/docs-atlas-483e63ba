@@ -1,0 +1,132 @@
+---
+title: "Setting up and managing GameAP nodes"
+description: "Add dedicated servers as GameAP nodes, install GameAP Daemon with the setup script, and verify connectivity between the panel and the daemon."
+keywords: ["nodes", "dedicated servers", "gameap daemon", "gdaemon", "node setup", "daemon status"]
+---
+
+A _node_ (also called a dedicated server) is a machine that runs **GameAP Daemon** — the lightweight agent that executes server control commands, manages files, and streams console output on behalf of the panel. The panel communicates with the daemon over a secure API connection. You can manage any number of nodes from a single panel.
+
+## How nodes work
+
+When you add a node, GameAP stores the daemon's host, port, and API credentials. Every server control action (start, stop, install, file operations) is sent from the panel to the daemon on the appropriate node. The daemon authenticates back to the panel using its own API token to report task results and server status.
+
+Supported operating systems for nodes:
+
+| Value | Description |
+|---|---|
+| `linux` | Any Linux distribution |
+| `windows` | Windows Server or Desktop |
+| `macos` | macOS |
+| `other` | Other or unknown OS |
+
+## Adding a node
+
+The recommended approach is the automatic setup flow. The panel generates a short-lived token, and you run a single command on the target machine. The daemon self-registers and the node appears in your panel automatically.
+
+<Steps>
+  <Step title="Open the node setup page">
+    In the sidebar, navigate to **Admin → Nodes**, then click **Add node** → **Setup via script**.
+
+    The panel calls `GET /api/nodes/setup`, generates a 24-character random token, and caches it for **300 seconds** (5 minutes).
+  </Step>
+
+  <Step title="Copy the setup command">
+    The page displays a shell command similar to:
+
+    ```bash
+    curl -sSL https://your-panel.example/gdaemon/setup/TOKEN | bash
+    ```
+
+    Copy the full command — the token is embedded in the URL.
+  </Step>
+
+  <Step title="Run the command on the target machine">
+    SSH into the machine you want to add as a node and paste the command. The script:
+
+    1. Downloads and installs GameAP Daemon.
+    2. Calls `GET /gdaemon/setup/{token}` on the panel to retrieve registration parameters.
+    3. Calls `POST /gdaemon/create/{token}` to register itself, creating the node record and obtaining its daemon API token.
+    4. Starts the daemon service.
+  </Step>
+
+  <Step title="Verify the node appears in the panel">
+    Return to **Admin → Nodes**. The new node should be listed within a few seconds. Click into it to review the auto-detected IP addresses, OS, and work path.
+  </Step>
+</Steps>
+
+<Warning>
+  The panel must be reachable from the node machine over HTTP or HTTPS during setup. If your panel is behind a firewall or private network, ensure the node can reach it before running the setup script. Similarly, the panel must be able to reach the daemon's host and port after registration for control commands to work.
+</Warning>
+
+## Checking daemon status
+
+After a node is added, confirm the panel can communicate with its daemon.
+
+<Tabs>
+  <Tab title="Web UI">
+    Open **Admin → Nodes** and look at the **Status** column. A green indicator means the daemon responded to the last health check. Click into the node and use the **Check daemon** button to trigger an on-demand status request.
+  </Tab>
+
+  <Tab title="API">
+    ```bash
+    curl https://your-panel.example/api/nodes/7/daemon \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    A reachable daemon returns:
+
+    ```json
+    {
+      "status": "ok",
+      "data": {
+        "version": "1.2.0",
+        "os": "linux",
+        "uptime": 86400
+      }
+    }
+    ```
+
+    A connection failure returns HTTP 500 with an error message in the body.
+  </Tab>
+</Tabs>
+
+## Node configuration fields
+
+When editing a node manually, the key fields are:
+
+| Field | Description |
+|---|---|
+| `name` | Human-readable label for the node |
+| `gdaemon_host` | Hostname or IP the panel uses to reach the daemon |
+| `gdaemon_port` | TCP port the daemon listens on (default: 31717) |
+| `gdaemon_api_key` | Static API key used for the initial handshake |
+| `gdaemon_api_token` | Token obtained after the daemon authenticates |
+| `work_path` | Root directory on the node where server files are stored |
+| `steamcmd_path` | Path to SteamCMD, required for Steam-based installs |
+| `prefer_install_method` | How GameAP installs server files (`auto`, `copy`, `download`, `script`, `steam`, `none`) |
+
+<AccordionGroup>
+  <Accordion title="Custom install scripts">
+    Nodes support per-node override scripts for every lifecycle event: `script_install`, `script_reinstall`, `script_update`, `script_start`, `script_stop`, `script_restart`, `script_kill`, `script_status`, `script_get_console`, `script_send_command`, and `script_delete`.
+
+    Scripts use `{shortcode}` placeholders that GameAP replaces with server-specific values at runtime (e.g., `{host}`, `{port}`, `{dir}`, `{game}`).
+  </Accordion>
+
+  <Accordion title="TLS certificates">
+    For encrypted daemon connections, generate a client certificate via **Admin → Certificates** and associate it with the node using the `client_certificate_id` field. The panel includes the certificate bundle when communicating with the daemon.
+  </Accordion>
+</AccordionGroup>
+
+## Related pages
+
+<CardGroup cols={3}>
+  <Card title="Game servers" icon="server" href="/guides/game-servers">
+    Create and manage game servers on your nodes.
+  </Card>
+  <Card title="Certificates" icon="shield" href="/admin/certificates">
+    Set up TLS client certificates for secure daemon connections.
+  </Card>
+  <Card title="Nodes API reference" icon="code" href="/api/nodes">
+    Full REST API reference for node management endpoints.
+  </Card>
+</CardGroup>

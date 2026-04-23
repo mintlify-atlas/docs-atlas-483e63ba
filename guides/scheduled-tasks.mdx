@@ -1,0 +1,159 @@
+---
+title: "Automating server tasks with GameAP scheduler"
+description: "Schedule recurring or one-off start, stop, restart, update, and reinstall commands on any game server using the GameAP task scheduler."
+keywords: ["scheduled tasks", "server tasks", "automation", "cron", "restart schedule", "gameap scheduler"]
+---
+
+Server tasks let you schedule commands to run automatically on a game server at a specific time, or on a repeating interval. The panel stores the schedule and the GameAP Daemon picks up pending tasks and executes them. This is useful for nightly restarts, automatic updates, or any routine maintenance that would otherwise require manual action.
+
+## Task commands
+
+Each task targets a single server and runs one of five built-in commands:
+
+| Command | Description |
+|---|---|
+| `start` | Start the server if it is not already running |
+| `stop` | Gracefully stop the server |
+| `restart` | Stop and then start the server |
+| `update` | Pull the latest files from the configured repository or Steam |
+| `reinstall` | Wipe the server directory and reinstall from scratch |
+
+## Task timing fields
+
+| Field | Type | Description |
+|---|---|---|
+| `execute_date` | datetime | When the task should first run (required) |
+| `repeat` | integer (0–255) | How many times to repeat. `0` or `1` means run once; `2`–`255` means run that many times |
+| `repeat_period` | string | Interval between repetitions, e.g. `"1 hour"`, `"30 minutes"`, `"1 day"` |
+| `payload` | string | Optional extra data passed to the command |
+
+<Note>
+  The minimum `repeat_period` is **10 minutes**. The maximum is **365 days**. A `repeat_period` must be provided whenever `repeat` is not `1`.
+</Note>
+
+## Scheduling a recurring restart
+
+<Steps>
+  <Step title="Open the Tasks tab">
+    Navigate to the server detail page and click the **Tasks** tab.
+  </Step>
+
+  <Step title="Click New task">
+    Click **New task** to open the task creation form.
+  </Step>
+
+  <Step title="Choose the command">
+    Select **restart** from the **Command** dropdown.
+  </Step>
+
+  <Step title="Set the first execution time">
+    Pick a date and time for the first restart. For a nightly restart, choose tonight at your preferred maintenance window (e.g., 04:00 local server time).
+  </Step>
+
+  <Step title="Configure repetition">
+    Set **Repeat** to `0` (unlimited) and **Repeat period** to `1 day`. The task will run once per day at the same time until you delete it.
+  </Step>
+
+  <Step title="Save the task">
+    Click **Save**. The task appears in the task list with its next execution time. The daemon picks it up when the time arrives.
+  </Step>
+</Steps>
+
+## Creating a task via the API
+
+```bash
+curl -X POST https://your-panel.example/api/servers/42/tasks \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "restart",
+    "execute_date": "2026-04-24T04:00:00Z",
+    "repeat": 0,
+    "repeat_period": "1 day"
+  }'
+```
+
+A successful response returns HTTP 201 and the created task:
+
+```json
+{
+  "id": 17,
+  "command": "restart",
+  "server_id": 42,
+  "execute_date": "2026-04-24T04:00:00Z",
+  "repeat": 0,
+  "repeat_period": "86400000000000",
+  "counter": 0,
+  "created_at": "2026-04-23T10:00:00Z"
+}
+```
+
+## Managing existing tasks
+
+<Tabs>
+  <Tab title="Web UI">
+    The **Tasks** tab lists all tasks for the server. Each row shows the command, next execution time, repeat count, and how many times it has already run (`counter`). Use the edit and delete actions on each row to update or remove a task.
+  </Tab>
+
+  <Tab title="API">
+    List all tasks for a server:
+
+    ```bash
+    curl https://your-panel.example/api/servers/42/tasks \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    Update a task:
+
+    ```bash
+    curl -X PUT https://your-panel.example/api/servers/42/tasks/17 \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "command": "restart",
+        "execute_date": "2026-04-25T04:00:00Z",
+        "repeat": 0,
+        "repeat_period": "1 day"
+      }'
+    ```
+
+    Delete a task:
+
+    ```bash
+    curl -X DELETE https://your-panel.example/api/servers/42/tasks/17 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+  </Tab>
+</Tabs>
+
+## Task failure tracking
+
+If the daemon fails to execute a task, a failure record is stored with the error output. You can review failed runs on the task detail page in the web UI. The `counter` field on the task tracks the number of successful executions.
+
+<AccordionGroup>
+  <Accordion title="One-time tasks">
+    Set `repeat` to `1` and omit `repeat_period`. The task runs once at `execute_date` and is then considered complete. You do not need to delete it manually.
+  </Accordion>
+
+  <Accordion title="Fixed-count repetitions">
+    Set `repeat` to any value from `2` to `255` to run the command that many times at the configured interval. For example, `repeat: 3` with `repeat_period: "1 hour"` runs the command three times, one hour apart.
+  </Accordion>
+
+  <Accordion title="Unlimited repetitions">
+    Set `repeat` to `0` to repeat indefinitely at the configured interval. The task continues until you delete it or disable it.
+  </Accordion>
+</AccordionGroup>
+
+## Related pages
+
+<CardGroup cols={3}>
+  <Card title="Game servers" icon="server" href="/guides/game-servers">
+    Manage the servers you schedule tasks for.
+  </Card>
+  <Card title="Tasks API reference" icon="code" href="/api/tasks">
+    Full REST API reference for the server tasks endpoints.
+  </Card>
+  <Card title="File manager" icon="folder-open" href="/guides/file-manager">
+    Browse and edit server files between scheduled operations.
+  </Card>
+</CardGroup>

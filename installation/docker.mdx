@@ -1,0 +1,485 @@
+---
+title: "Deploy GameAP with Docker"
+description: "Deploy GameAP using Docker Compose or a standalone docker run command, with PostgreSQL, MySQL, or SQLite as the backing database of your choice."
+keywords: ["docker", "docker-compose", "gameap", "installation", "containers", "postgresql", "mysql", "sqlite"]
+---
+
+Docker is the recommended way to deploy GameAP. The official image on Docker Hub bundles the GameAP binary, and Docker Compose configurations let you spin up the panel together with a database and Redis cache in a single command.
+
+## Prerequisites
+
+- [Docker Engine](https://docs.docker.com/engine/install/) 24 or later
+- [Docker Compose](https://docs.docker.com/compose/install/) v2 or later (included with Docker Desktop)
+
+## Docker Compose quickstart
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/gameap/gameap.git
+    cd gameap
+    ```
+  </Step>
+  <Step title="Create a .env file">
+    Copy the example configuration and set your secret keys before starting any containers.
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Open `.env` and replace the placeholder values:
+
+    ```bash
+    # Security — change both values before starting
+    ENCRYPTION_KEY=your-random-32-char-encryption-key
+    AUTH_SECRET=your-random-32-char-auth-secret
+
+    # Database password for PostgreSQL
+    POSTGRES_PASSWORD=secure-database-password
+
+    # Log verbosity
+    LOGGER_LEVEL=info
+    ```
+
+    <Warning>
+      Never leave `ENCRYPTION_KEY` or `AUTH_SECRET` set to the default `change-me-in-production` value. Generate strong random strings before exposing GameAP to any network.
+    </Warning>
+  </Step>
+  <Step title="Start all services">
+    The default Compose file starts GameAP with PostgreSQL 17 and Redis 7.
+
+    ```bash
+    docker-compose up -d
+    ```
+  </Step>
+  <Step title="Open the panel">
+    Navigate to [http://localhost:8025](http://localhost:8025) in your browser. GameAP is ready when the health check passes — you can verify this with:
+
+    ```bash
+    docker inspect --format='{{.State.Health.Status}}' gameap
+    ```
+  </Step>
+</Steps>
+
+## Database variants
+
+Choose the Compose configuration that matches your preferred database backend.
+
+<Tabs>
+  <Tab title="PostgreSQL (default)">
+    The default `docker-compose.yml` uses PostgreSQL 17 with Redis 7 — the recommended setup for production.
+
+    ```yaml docker-compose.yml
+    services:
+      gameap:
+        image: gameap/gameap:latest
+        build:
+          context: .
+          dockerfile: Dockerfile
+          args:
+            VERSION: dev
+            BUILD_DATE: ${BUILD_DATE:-2025-01-01T00:00:00Z}
+        container_name: gameap
+        entrypoint: ["/bin/sh", "-c", "mkdir -p /var/lib/gameap/files && /usr/bin/gameap"]
+        ports:
+          - "8025:8025"
+        environment:
+          HTTP_HOST: 0.0.0.0
+          HTTP_PORT: 8025
+          DATABASE_DRIVER: postgres
+          DATABASE_URL: postgres://gameap:gameap@postgres:5432/gameap?sslmode=disable
+          ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production}
+          AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+          CACHE_DRIVER: redis
+          CACHE_REDIS_ADDR: redis:6379
+          FILES_DRIVER: local
+          FILES_LOCAL_BASE_PATH: /var/lib/gameap/files
+          LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+        volumes:
+          - gameap-storage:/var/lib/gameap
+        depends_on:
+          postgres:
+            condition: service_healthy
+          redis:
+            condition: service_healthy
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/api/health"]
+          interval: 30s
+          timeout: 3s
+          start_period: 10s
+          retries: 3
+
+      postgres:
+        image: postgres:17-alpine
+        container_name: gameap-postgres
+        environment:
+          POSTGRES_DB: gameap
+          POSTGRES_USER: gameap
+          POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gameap}
+        volumes:
+          - gameap-postgres-data:/var/lib/postgresql/data
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -U gameap"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+      redis:
+        image: redis:7-alpine
+        container_name: gameap-redis
+        command: redis-server --appendonly yes
+        volumes:
+          - gameap-redis-data:/data
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "redis-cli", "ping"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+    volumes:
+      gameap-storage:
+        driver: local
+      gameap-postgres-data:
+        driver: local
+      gameap-redis-data:
+        driver: local
+
+    networks:
+      gameap-network:
+        driver: bridge
+    ```
+
+    Start the stack:
+
+    ```bash
+    docker-compose up -d
+    ```
+  </Tab>
+  <Tab title="MySQL">
+    Save the configuration below as `docker-compose.mysql.yml`. It replaces PostgreSQL with MySQL 8.4 and keeps Redis for caching.
+
+    ```yaml docker-compose.mysql.yml
+    services:
+      gameap:
+        image: gameap/gameap:latest
+        container_name: gameap
+        ports:
+          - "8025:8025"
+        environment:
+          HTTP_HOST: 0.0.0.0
+          HTTP_PORT: 8025
+          DATABASE_DRIVER: mysql
+          DATABASE_URL: gameap:gameap@tcp(mysql:3306)/gameap?parseTime=true
+          ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production}
+          AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+          CACHE_DRIVER: redis
+          CACHE_REDIS_ADDR: redis:6379
+          FILES_DRIVER: local
+          FILES_LOCAL_BASE_PATH: /var/lib/gameap/files
+          LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+        volumes:
+          - gameap-storage:/var/lib/gameap
+        depends_on:
+          mysql:
+            condition: service_healthy
+          redis:
+            condition: service_healthy
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/api/health"]
+          interval: 30s
+          timeout: 3s
+          start_period: 10s
+          retries: 3
+
+      mysql:
+        image: mysql:8.4
+        container_name: gameap-mysql
+        environment:
+          MYSQL_DATABASE: gameap
+          MYSQL_USER: gameap
+          MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gameap}
+          MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+        volumes:
+          - mysql-data:/var/lib/mysql
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+      redis:
+        image: redis:7-alpine
+        container_name: gameap-redis
+        command: redis-server --appendonly yes
+        volumes:
+          - redis-data:/data
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "redis-cli", "ping"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+    volumes:
+      gameap-storage:
+        driver: local
+      mysql-data:
+        driver: local
+      redis-data:
+        driver: local
+
+    networks:
+      gameap-network:
+        driver: bridge
+    ```
+
+    Start the stack:
+
+    ```bash
+    docker-compose -f docker-compose.mysql.yml up -d
+    ```
+  </Tab>
+  <Tab title="SQLite">
+    A minimal setup with no external database or cache services — useful for testing or low-traffic deployments.
+
+    ```yaml docker-compose.simple.yml
+    services:
+      gameap:
+        image: gameap/gameap:latest
+        container_name: gameap
+        ports:
+          - "8025:8025"
+        environment:
+          HTTP_HOST: 0.0.0.0
+          HTTP_PORT: 8025
+          DATABASE_DRIVER: sqlite
+          DATABASE_URL: file:/var/lib/gameap/db.sqlite?_busy_timeout=5000&_journal_mode=WAL&cache=shared
+          ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production}
+          AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+          CACHE_DRIVER: memory
+          FILES_DRIVER: local
+          FILES_LOCAL_BASE_PATH: /var/lib/gameap/files
+          LOGGER_LEVEL: ${LOGGER_LEVEL:-debug}
+        volumes:
+          - gameap-storage:/var/lib/gameap
+        networks:
+          - gameap-network
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/api/health"]
+          interval: 30s
+          timeout: 3s
+          start_period: 10s
+          retries: 3
+
+    volumes:
+      gameap-storage:
+        driver: local
+
+    networks:
+      gameap-network:
+        driver: bridge
+    ```
+
+    Start the stack:
+
+    ```bash
+    docker-compose -f docker-compose.simple.yml up -d
+    ```
+
+    <Note>
+      SQLite with in-memory cache is not recommended for production use. Use PostgreSQL or MySQL for deployments with multiple concurrent users.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Running a single container
+
+If you prefer to manage your own database separately, pull the image from Docker Hub and pass environment variables directly.
+
+```bash
+# Pull the latest release
+docker pull gameap/gameap:latest
+
+# Run with SQLite for a quick test
+docker run -d \
+  -p 8025:8025 \
+  -e DATABASE_DRIVER=sqlite \
+  -e DATABASE_URL="file:/var/lib/gameap/db.sqlite?_busy_timeout=5000&_journal_mode=WAL&cache=shared" \
+  -e ENCRYPTION_KEY=your-secret-key \
+  -e AUTH_SECRET=your-auth-secret \
+  -v gameap-data:/var/lib/gameap \
+  gameap/gameap:latest
+```
+
+To pin a specific release, replace `latest` with a version tag such as `gameap/gameap:v1.0.0`.
+
+## Volume mounts
+
+| Volume path | Purpose |
+|---|---|
+| `/var/lib/gameap` | Game server files, SQLite database, and local file storage |
+| `/var/lib/postgresql/data` | PostgreSQL data directory (Postgres container) |
+| `/var/lib/mysql` | MySQL data directory (MySQL container) |
+| `/data` | Redis AOF persistence (Redis container) |
+
+The container runs as the `gameap` user (UID 1000). If you bind-mount a host directory instead of a named volume, set ownership accordingly:
+
+```bash
+sudo chown -R 1000:1000 /path/to/mounted/directory
+```
+
+## Health checks
+
+The container exposes a health endpoint at `/api/health`. Docker queries this automatically on the interval defined in the Compose file (every 30 seconds by default).
+
+```bash
+# Check current health status
+docker inspect --format='{{.State.Health.Status}}' gameap
+
+# View recent health check output
+docker inspect --format='{{json .State.Health}}' gameap | jq
+```
+
+## Reverse proxy with nginx
+
+For production deployments, place GameAP behind a reverse proxy so that you can terminate TLS and use a domain name.
+
+```nginx
+server {
+    listen 80;
+    server_name gameap.example.com;
+
+    location / {
+        proxy_pass http://localhost:8025;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Reload nginx after creating the configuration:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+## Backup and restore
+
+### Backing up
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```bash
+    # Dump the database
+    docker exec gameap-postgres pg_dump -U gameap gameap > backup.sql
+
+    # Archive the file storage volume
+    docker run --rm \
+      -v gameap_gameap-storage:/data \
+      -v $(pwd):/backup \
+      alpine tar czf /backup/gameap-storage.tar.gz /data
+    ```
+  </Tab>
+  <Tab title="MySQL">
+    ```bash
+    # Dump the database
+    docker exec gameap-mysql mysqldump -u gameap -pgameap gameap > backup.sql
+
+    # Archive the file storage volume
+    docker run --rm \
+      -v gameap_gameap-storage:/data \
+      -v $(pwd):/backup \
+      alpine tar czf /backup/gameap-storage.tar.gz /data
+    ```
+  </Tab>
+  <Tab title="SQLite / volumes">
+    ```bash
+    # Archive the entire storage volume (includes SQLite database)
+    docker run --rm \
+      -v gameap_gameap-storage:/data \
+      -v $(pwd):/backup \
+      alpine tar czf /backup/gameap-storage.tar.gz /data
+    ```
+  </Tab>
+</Tabs>
+
+### Restoring
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```bash
+    docker exec -i gameap-postgres psql -U gameap gameap < backup.sql
+    ```
+  </Tab>
+  <Tab title="MySQL">
+    ```bash
+    docker exec -i gameap-mysql mysql -u gameap -pgameap gameap < backup.sql
+    ```
+  </Tab>
+  <Tab title="Volumes">
+    ```bash
+    docker run --rm \
+      -v gameap_gameap-storage:/data \
+      -v $(pwd):/backup \
+      alpine sh -c "cd / && tar xzf /backup/gameap-storage.tar.gz"
+    ```
+  </Tab>
+</Tabs>
+
+## Production security checklist
+
+<Warning>
+  Before exposing GameAP to the internet, review the following checklist. Skipping these steps leaves your deployment vulnerable.
+</Warning>
+
+- [ ] Set `ENCRYPTION_KEY` and `AUTH_SECRET` to strong, randomly generated values (at least 32 characters each)
+- [ ] Use strong, unique passwords for all database services
+- [ ] Place GameAP behind HTTPS using a reverse proxy (nginx, Traefik, or Caddy)
+- [ ] Do not expose database or Redis ports directly to the internet
+- [ ] Keep Docker images updated regularly
+- [ ] Schedule regular volume backups
+- [ ] Use Docker secrets or a secrets manager instead of plain `.env` files in production
+
+## Viewing logs
+
+```bash
+# Follow all services
+docker-compose logs -f
+
+# GameAP only
+docker-compose logs -f gameap
+
+# Database only
+docker-compose logs -f postgres
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration reference" icon="sliders" href="/installation/configuration">
+    Browse every environment variable available to configure GameAP.
+  </Card>
+  <Card title="Add a node" icon="network-wired" href="/guides/nodes">
+    Connect a game server host by installing the GameAP Daemon agent.
+  </Card>
+</CardGroup>

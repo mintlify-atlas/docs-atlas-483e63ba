@@ -1,0 +1,94 @@
+---
+title: "Installing and managing GameAP plugins"
+description: "Install GameAP plugins from the plugin store or by uploading a WASM file manually. Manage, view, and uninstall plugins through the admin UI or REST API."
+keywords: ["plugins", "install", "plugin store", "wasm", "upload", "uninstall"]
+---
+
+GameAP supports two installation paths: browsing and installing plugins from the built-in plugin store, or uploading a `.wasm` file you built or obtained yourself. Both paths validate the plugin before it is loaded, and all installed plugins can be viewed or removed at any time.
+
+## Installing from the plugin store
+
+The plugin store exposes available plugins at `GET /api/plugin-store/plugins`. The web UI reads this endpoint to display the catalog, handle version selection, and trigger installation.
+
+<Steps>
+  <Step title="Open the plugin store">
+    In the GameAP admin panel, navigate to **Plugins** → **Store**. The UI fetches available plugins from `GET /api/plugin-store/plugins` and renders them in a browsable catalog.
+  </Step>
+  <Step title="Select a plugin">
+    Click a plugin to view its details, available versions, and whether it requires a subscription. Free plugins install immediately; premium plugins require a valid `PLUGIN_STORE_LICENSE_KEY`.
+  </Step>
+  <Step title="Install the plugin">
+    Click **Install**. GameAP calls `POST /api/plugin-store/plugins/{id}/install` with an optional `version` field in the request body. The server downloads the `.wasm` file, verifies its SHA-256 hash, saves it to the plugins directory, and loads it into the WASM runtime.
+  </Step>
+  <Step title="Confirm it is running">
+    After installation, the plugin appears in `GET /api/admin/plugins/loaded`. Its status is `active` if it loaded correctly, or `error` if the WASM runtime rejected it.
+  </Step>
+</Steps>
+
+<Info>
+  To install or update premium plugins, set the `PLUGIN_STORE_LICENSE_KEY` environment variable to your GameAP license key before starting the panel.
+</Info>
+
+## Installing manually (file upload)
+
+If you have built a plugin yourself or received a `.wasm` file outside the store, you can upload it directly. The manual process includes a dry-run step so you can inspect the plugin before it is permanently saved.
+
+<Steps>
+  <Step title="Dry-run validation">
+    Upload the `.wasm` file to `POST /api/admin/plugins/upload/dry-run` as a multipart form. GameAP loads the file in an isolated WASM context, calls `GetInfo` and `GetSubscribedEvents`, and returns the plugin metadata and event subscriptions — without saving anything to disk.
+
+    ```bash
+    curl -X POST https://your-gameap-host/api/admin/plugins/upload/dry-run \
+      -H "Authorization: Bearer <token>" \
+      -F "plugin=@my-plugin.wasm"
+    ```
+
+    The response includes the plugin ID, name, version, description, author, API version, and the list of events the plugin has subscribed to.
+  </Step>
+  <Step title="Install the plugin">
+    After reviewing the dry-run output, upload the same file to `POST /api/admin/plugins/upload/install`. GameAP validates the WASM binary, saves the file to the plugins directory, records it in the database, and loads it into the runtime.
+
+    ```bash
+    curl -X POST https://your-gameap-host/api/admin/plugins/upload/install \
+      -H "Authorization: Bearer <token>" \
+      -F "plugin=@my-plugin.wasm"
+    ```
+  </Step>
+  <Step title="Confirm it is running">
+    Call `GET /api/admin/plugins/loaded` to verify the plugin appears in the list with `status: active`.
+  </Step>
+</Steps>
+
+<Note>
+  Uploaded plugins run in the same WebAssembly sandbox as store plugins. They cannot access the host filesystem or network directly, and all repository operations are subject to RBAC enforcement.
+</Note>
+
+## Viewing installed plugins
+
+Call `GET /api/admin/plugins/loaded` to retrieve all currently loaded plugins. The response includes each plugin's ID, name, version, description, author, API version, source, and subscribed events.
+
+```bash
+curl https://your-gameap-host/api/admin/plugins/loaded \
+  -H "Authorization: Bearer <token>"
+```
+
+## Uninstalling a plugin
+
+Send a `DELETE` request to `/api/admin/plugins/{id}` where `{id}` is the plugin's string identifier (for example, `my-plugin`). GameAP unloads the plugin from the WASM runtime, deletes the `.wasm` file from disk, and removes the database record.
+
+```bash
+curl -X DELETE https://your-gameap-host/api/admin/plugins/my-plugin \
+  -H "Authorization: Bearer <token>"
+```
+
+A successful uninstall returns HTTP `204 No Content`.
+
+## Disabling all plugins
+
+Set the `PLUGINS_DISABLED=true` environment variable before starting the panel to prevent all plugins from loading. This is useful for troubleshooting startup problems caused by a faulty plugin.
+
+```bash
+PLUGINS_DISABLED=true ./gameap
+```
+
+When this variable is set, the plugin manager skips loading entirely. Plugins remain installed in the database and on disk; they will load normally the next time the panel starts without this variable.

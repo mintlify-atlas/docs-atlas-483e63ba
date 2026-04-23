@@ -1,0 +1,168 @@
+---
+title: "GameAP architecture: panel, daemon agents, and servers"
+description: "GameAP uses a three-tier architecture: a Go web panel with Vue.js UI, per-node GameAP Daemon agents, and the game server processes they manage."
+keywords: ["gameap architecture", "game server panel design", "gameap daemon", "three-tier architecture"]
+---
+
+GameAP is built around a three-tier architecture consisting of a central web panel, lightweight daemon agents on each node, and the game server processes the daemons control. Understanding how these components interact helps you plan deployments and troubleshoot issues.
+
+## Component overview
+
+<CardGroup cols={2}>
+  <Card title="Web panel" icon="browser" href="/installation/docker">
+    A Go backend serving a Vue.js single-page application. Handles the REST API, authentication, RBAC, and all persistent state in the database.
+  </Card>
+  <Card title="GameAP Daemon" icon="microchip" href="/guides/nodes">
+    A lightweight agent that runs on each node. Receives instructions from the panel over its REST API and manages game server processes locally.
+  </Card>
+  <Card title="Game servers" icon="server" href="/guides/game-servers">
+    Individual game server processes (Minecraft, CS2, etc.) that run under the daemon's supervision on each node.
+  </Card>
+  <Card title="REST API" icon="code" href="/api/overview">
+    The panel exposes a REST API consumed by the Vue.js frontend and available to external tools and integrations.
+  </Card>
+</CardGroup>
+
+## How the tiers communicate
+
+Administrators interact with GameAP through a browser over HTTP or HTTPS. All requests go to the **web panel**, which serves the Vue.js frontend and handles API calls.
+
+When an action affects a game server (start, stop, file upload, etc.), the panel forwards the instruction to the appropriate **GameAP Daemon** over the daemon's REST API. The daemon carries out the action locally — launching or killing a process, writing config files, or streaming logs back to the panel.
+
+Game servers themselves are ordinary processes managed by the daemon. The daemon monitors their status, captures their output, and reports health back to the panel.
+
+```
+Browser
+  └── HTTP/HTTPS ──► Web Panel (Go + Vue.js)
+                          │
+                          │  Daemon REST API
+                          ▼
+                    GameAP Daemon (Node 1)
+                          │
+                          ├── Game Server Process A
+                          └── Game Server Process B
+
+                    GameAP Daemon (Node 2)
+                          │
+                          └── Game Server Process C
+```
+
+## Panel components in depth
+
+<Tabs>
+  <Tab title="Panel">
+
+The web panel is written in Go and serves a Vue.js single-page application (SPA). It is distributed as a single binary with no external runtime dependencies.
+
+**Backend responsibilities:**
+
+- REST API for all panel operations (servers, nodes, games, users, tasks, files)
+- Authentication using PASETO or JWT tokens
+- Role-based access control (RBAC) with configurable cache TTL
+- Persisting state in a relational database (PostgreSQL, MySQL, MariaDB, or SQLite)
+- Communicating with daemon agents to relay user actions
+- Caching frequently-read data (nodes, games, RBAC rules, user records)
+- Storing uploaded files locally or in S3-compatible object storage
+
+**Frontend:**
+
+The Vue.js SPA is bundled into the binary at build time. The frontend communicates exclusively with the panel's REST API — there is no direct browser-to-daemon connection.
+
+**Database support:**
+
+| Backend | Connection string format |
+|---|---|
+| PostgreSQL | `postgres://user:pass@host:5432/dbname?sslmode=disable` |
+| MySQL / MariaDB | `user:pass@tcp(host:3306)/dbname?parseTime=true` |
+| SQLite | `file:/path/to/db.sqlite?_busy_timeout=5000&_journal_mode=WAL&cache=shared` |
+
+**RBAC:**
+
+Permissions are evaluated on every request and cached to avoid repeated database lookups. You can tune the cache lifetime with `RBAC_CACHE_TTL` (default: `30s`) and `CACHE_TTL_RBAC` (default: `24h`).
+
+**Caching layer:**
+
+| Driver | When to use |
+|---|---|
+| `memory` | Single-instance deployments; cache is local to the process |
+| `redis` | Multi-instance or production deployments; shared across processes |
+
+**File storage:**
+
+| Driver | Configuration |
+|---|---|
+| `local` | `FILES_LOCAL_BASE_PATH` — path on the panel host |
+| `s3` | `FILES_S3_ENDPOINT`, `FILES_S3_BUCKET`, `FILES_S3_ACCESS_KEY_ID`, `FILES_S3_SECRET_ACCESS_KEY` |
+
+  </Tab>
+  <Tab title="Daemon">
+
+The **GameAP Daemon** is a separate lightweight agent installed on each machine (node) that hosts game servers. It is not part of the panel binary.
+
+**Daemon responsibilities:**
+
+- Exposing a REST API that the panel calls to manage game servers
+- Starting, stopping, and restarting game server processes
+- Monitoring process status and reporting health back to the panel
+- Streaming game server console output
+- Managing game server file systems (reading, writing, uploading, extracting archives)
+- Applying game-specific configuration templates
+
+**Communication:**
+
+The panel connects outbound to each daemon's REST API endpoint. The daemon does not initiate connections to the panel. Each node is registered in the panel with its IP address and daemon port (default: `31717`).
+
+**Platform support:**
+
+The GameAP Daemon runs on Linux, Windows, and macOS — the same platforms as the panel. This means a Linux panel can control daemons running on Windows nodes and vice versa.
+
+**Security:**
+
+Communication between the panel and each daemon is authenticated. Certificates and token-based authentication options are configurable per node. See [certificates](/admin/certificates) for setup details.
+
+  </Tab>
+</Tabs>
+
+## RBAC
+
+GameAP implements role-based access control (RBAC) to determine which users can access which resources and perform which actions. Roles are assigned to users in the panel and evaluated on every API request.
+
+RBAC rules are cached to reduce database load. Configure cache behavior with:
+
+- `RBAC_CACHE_TTL` — How long RBAC decisions are cached per request (default: `30s`)
+- `CACHE_TTL_RBAC` — How long RBAC data is held in the application cache layer (default: `24h`)
+
+For user and role management, see [users and roles](/admin/users-and-roles).
+
+## Deployment topology
+
+A minimal GameAP deployment has one panel instance and one node running the daemon. You can scale horizontally by adding more nodes; the panel can manage any number of daemon agents simultaneously.
+
+<AccordionGroup>
+  <Accordion title="Single-node deployment">
+    The panel and daemon run on the same machine. Suitable for small deployments or local development. SQLite is sufficient as the database backend.
+  </Accordion>
+  <Accordion title="Multi-node deployment">
+    The panel runs on a dedicated host (or in Docker). Multiple machines each run the GameAP Daemon and are registered as nodes in the panel. PostgreSQL or MySQL is recommended for the panel's database. Redis is recommended for the cache layer so that panel restarts or upgrades do not invalidate cached data.
+  </Accordion>
+  <Accordion title="High-availability panel">
+    Run multiple panel instances behind a load balancer. Use a shared PostgreSQL or MySQL database and Redis for the cache driver so all instances share state. All instances must use the same `ENCRYPTION_KEY` and `AUTH_SECRET`.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Docker installation" icon="docker" href="/installation/docker">
+    Deploy the panel and its dependencies with Docker Compose.
+  </Card>
+  <Card title="Binary installation" icon="terminal" href="/installation/binary">
+    Install GameAP as a standalone binary on Linux or Windows.
+  </Card>
+  <Card title="Nodes guide" icon="network-wired" href="/guides/nodes">
+    Add nodes and install the GameAP Daemon on your game server hosts.
+  </Card>
+  <Card title="Users and roles" icon="users" href="/admin/users-and-roles">
+    Configure RBAC and manage user permissions.
+  </Card>
+</CardGroup>

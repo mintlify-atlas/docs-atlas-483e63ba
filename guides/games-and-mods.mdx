@@ -1,0 +1,139 @@
+---
+title: "Configuring games and game mods in GameAP"
+description: "Manage the GameAP games catalog and game mods — create custom entries, import from Pelican egg format, and upgrade definitions from the global API."
+keywords: ["games", "game mods", "pelican egg", "import", "game catalog", "engine", "game configuration"]
+---
+
+GameAP separates game definitions into two levels: a _game_ describes the title and its installation sources, while a _game mod_ (modification) captures engine-specific details such as the start command, RCON commands, and configurable variables. Every game server is linked to exactly one game and one game mod.
+
+## Games
+
+A game entry is identified by a short, unique code (2–16 characters) and holds:
+
+| Field | Description |
+|---|---|
+| `code` | Unique slug used throughout the API and file paths |
+| `name` | Human-readable display name |
+| `engine` | Engine name (e.g., `source`, `goldsrc`, `unreal`) |
+| `engine_version` | Optional version string for the engine |
+| `steam_app_id_linux` / `steam_app_id_windows` | Steam App ID for SteamCMD installs |
+| `remote_repository_linux` / `remote_repository_windows` | URL to a remote file archive |
+| `local_repository_linux` / `local_repository_windows` | Path to a local file archive on the node |
+
+## Game mods
+
+A game mod belongs to a game (`game_code`) and extends it with runtime details:
+
+| Field | Description |
+|---|---|
+| `name` | Mod display name (e.g., "Vanilla", "Counter-Strike") |
+| `start_cmd_linux` / `start_cmd_windows` | Start command template with `{shortcode}` placeholders |
+| `fast_rcon` | List of preset RCON commands shown in the UI |
+| `vars` | Configurable server variables exposed on the server edit form |
+| `kick_cmd`, `ban_cmd`, `chname_cmd`, etc. | RCON command templates for player management |
+
+## Creating a custom game
+
+<Steps>
+  <Step title="Navigate to the Games admin page">
+    In the sidebar, go to **Admin → Games**, then click **Create game**.
+  </Step>
+
+  <Step title="Fill in the required fields">
+    Provide a unique **Code** (lowercase, no spaces), a **Name**, and an **Engine**. The code cannot be changed after creation.
+  </Step>
+
+  <Step title="Set installation sources">
+    Choose at least one installation method:
+
+    - Enter a **Steam App ID** to install via SteamCMD.
+    - Enter a **Remote repository URL** to download a tar.gz or zip archive.
+    - Enter a **Local repository path** for archives already present on the node.
+  </Step>
+
+  <Step title="Save the game">
+    Click **Save**. The game now appears in the game selection dropdown when creating servers.
+  </Step>
+
+  <Step title="Add a game mod">
+    On the game detail page, click **Add mod**. Provide a name and the Linux start command. Use `{host}`, `{port}`, `{dir}`, and other shortcodes in the command template. Save the mod.
+  </Step>
+</Steps>
+
+## Importing a game
+
+<Tabs>
+  <Tab title="Import from Pelican">
+    GameAP can import game definitions from [Pelican](https://pelican.dev) egg JSON files. This lets you reuse the large library of community eggs without manual entry.
+
+    **From the web UI:**
+
+    1. Go to **Admin → Games** → **Import → Pelican egg**.
+    2. Paste the egg JSON or upload the `.json` file.
+    3. Review the preview and click **Import**.
+
+    **Using the API:**
+
+    ```bash
+    curl -X POST https://your-panel.example/api/games/import/pelican-egg \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d @my-egg.json
+    ```
+
+    A successful import returns the created game code and game mod ID:
+
+    ```json
+    {
+      "game_code": "csgo",
+      "game_name": "Counter-Strike: Global Offensive",
+      "game_mod_id": 14
+    }
+    ```
+  </Tab>
+
+  <Tab title="Create manually">
+    Use the steps in [Creating a custom game](#creating-a-custom-game) above to define the game and at least one mod by hand.
+
+    Alternatively, use the API:
+
+    ```bash
+    curl -X POST https://your-panel.example/api/games \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "code": "valheim",
+        "name": "Valheim",
+        "engine": "unity",
+        "steam_app_id_linux": 896660
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+## Upgrading games from the global API
+
+GameAP can pull updated game definitions from the upstream GameAP global catalog. This refreshes installation URLs, start commands, and variables without manual editing.
+
+```bash
+curl -X POST https://your-panel.example/api/games/upgrade \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<Note>
+  The upgrade endpoint updates existing game and mod records but does not delete locally created entries. Fields that you have customised may be overwritten — review changes after an upgrade.
+</Note>
+
+## Related pages
+
+<CardGroup cols={3}>
+  <Card title="Game servers" icon="server" href="/guides/game-servers">
+    Create servers using the games and mods you configure here.
+  </Card>
+  <Card title="Games API reference" icon="code" href="/api/games">
+    Full REST API reference for game and game mod endpoints.
+  </Card>
+  <Card title="Nodes" icon="hard-drive" href="/guides/nodes">
+    Set up the nodes that host your game servers.
+  </Card>
+</CardGroup>

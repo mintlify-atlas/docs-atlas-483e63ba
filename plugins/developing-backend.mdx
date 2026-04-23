@@ -1,0 +1,409 @@
+---
+title: "Developing GameAP backend plugins with WASM"
+description: "Build GameAP backend plugins in Go, compiled to WebAssembly. Handle server lifecycle events, call host libraries, and register custom HTTP endpoints."
+keywords: ["plugin development", "wasm", "webassembly", "go", "tinygo", "backend plugin"]
+---
+
+GameAP backend plugins are Go programs compiled to WebAssembly. They implement a typed interface, subscribe to server lifecycle events, call host function libraries, and optionally register custom HTTP routes. Because plugins run in a WASM sandbox, they never have direct access to the host filesystem or network — all interaction with the outside world goes through the libraries described below.
+
+## Requirements
+
+- Go 1.21+ or TinyGo 0.30+
+- `protoc` with `protoc-gen-go-plugin` (for regenerating protobuf bindings — not required to use existing SDK types)
+
+## Plugin interface
+
+Every plugin must implement the `PluginService` interface by registering a struct with `proto.RegisterPluginService` in its `init` function:
+
+```go
+//go:build wasip1
+
+package main
+
+import (
+    "context"
+
+    "github.com/gameap/gameap/pkg/plugin/proto"
+    "github.com/gameap/gameap/pkg/plugin/sdk/log"
+)
+
+func main() {}
+
+func init() {
+    proto.RegisterPluginService(MyPlugin{})
+}
+
+type MyPlugin struct{}
+```
+
+The interface consists of seven methods:
+
+| Method | Purpose |
+|---|---|
+| `GetInfo` | Return plugin metadata (ID, name, version, description, author, API version) |
+| `Initialize` | Run startup logic; receive plugin configuration from `req.Config` |
+| `Shutdown` | Run cleanup logic before the plugin is unloaded |
+| `GetSubscribedEvents` | Return the list of `EventType` values this plugin wants to receive |
+| `HandleEvent` | Process an incoming event |
+| `GetHTTPRoutes` | Return custom HTTP route definitions |
+| `HandleHTTPRequest` | Handle an HTTP request matched to one of the registered routes |
+
+## Minimal plugin example
+
+The following plugin logs a message whenever a server starts or stops:
+
+```go
+//go:build wasip1
+
+package main
+
+import (
+    "context"
+
+    "github.com/gameap/gameap/pkg/plugin/proto"
+    "github.com/gameap/gameap/pkg/plugin/sdk/log"
+)
+
+func main() {}
+
+func init() {
+    proto.RegisterPluginService(MyPlugin{})
+}
+
+type MyPlugin struct{}
+
+func (p MyPlugin) GetInfo(ctx context.Context, req *proto.GetInfoRequest) (*proto.PluginInfo, error) {
+    return &proto.PluginInfo{
+        Id:          "my-plugin",
+        Name:        "My Plugin",
+        Version:     "1.0.0",
+        Description: "Example plugin",
+        Author:      "Your Name",
+        ApiVersion:  "1",
+    }, nil
+}
+
+func (p MyPlugin) Initialize(ctx context.Context, req *proto.InitializeRequest) (*proto.InitializeResponse, error) {
+    return &proto.InitializeResponse{
+        Result: &proto.Result{Success: true},
+    }, nil
+}
+
+func (p MyPlugin) Shutdown(ctx context.Context, req *proto.ShutdownRequest) (*proto.ShutdownResponse, error) {
+    return &proto.ShutdownResponse{
+        Result: &proto.Result{Success: true},
+    }, nil
+}
+
+func (p MyPlugin) GetSubscribedEvents(ctx context.Context, req *proto.GetSubscribedEventsRequest) (*proto.GetSubscribedEventsResponse, error) {
+    return &proto.GetSubscribedEventsResponse{
+        Events: []proto.EventType{
+            proto.EventType_EVENT_TYPE_SERVER_POST_START,
+            proto.EventType_EVENT_TYPE_SERVER_POST_STOP,
+        },
+    }, nil
+}
+
+func (p MyPlugin) HandleEvent(ctx context.Context, event *proto.Event) (*proto.EventResult, error) {
+    logger := log.NewLogService()
+
+    switch event.Type {
+    case proto.EventType_EVENT_TYPE_SERVER_POST_START:
+        serverEvent := event.GetServerEvent()
+        logger.Log(ctx, &log.LogRequest{
+            Level:   "info",
+            Message: "Server started: " + serverEvent.Server.Name,
+        })
+    }
+
+    return &proto.EventResult{Handled: true}, nil
+}
+
+func (p MyPlugin) GetHTTPRoutes(ctx context.Context, req *proto.GetHTTPRoutesRequest) (*proto.GetHTTPRoutesResponse, error) {
+    return &proto.GetHTTPRoutesResponse{Routes: nil}, nil
+}
+
+func (p MyPlugin) HandleHTTPRequest(ctx context.Context, req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
+    return &proto.HTTPResponse{StatusCode: 404}, nil
+}
+```
+
+## Building plugins
+
+Plugins must be built as WASM reactor modules using `-buildmode=c-shared`. This creates a module with an `_initialize` entry point (instead of `_start`), which is required for exported functions to work correctly after the host calls `_initialize`.
+
+<Warning>
+  Omitting `-buildmode=c-shared` produces a "command" WASM module that exits after `main()`. Exported functions will not work, and GameAP will reject the file.
+</Warning>
+
+<CodeGroup>
+
+```bash TinyGo (recommended)
+tinygo build -o my-plugin.wasm -target=wasip1 -buildmode=c-shared .
+```
+
+```bash Standard Go
+GOOS=wasip1 GOARCH=wasm go build -o my-plugin.wasm -buildmode=c-shared .
+```
+
+</CodeGroup>
+
+TinyGo produces significantly smaller binaries and is the recommended toolchain. Standard Go works for cases where TinyGo's limited runtime support is a problem.
+
+## Event handling
+
+### Accessing event data
+
+The `event.GetServerEvent()` helper returns the server payload for all server-related events. The `Server` field contains the full server record.
+
+```go
+func (p MyPlugin) HandleEvent(ctx context.Context, event *proto.Event) (*proto.EventResult, error) {
+    switch event.Type {
+    case proto.EventType_EVENT_TYPE_SERVER_POST_START:
+        serverEvent := event.GetServerEvent()
+        // serverEvent.Server contains ID, Name, GameId, Ip, Port, etc.
+    }
+    return &proto.EventResult{Handled: true}, nil
+}
+```
+
+### Cancelling PRE_* events
+
+For any event whose name starts with `PRE_`, the plugin can prevent the operation from proceeding by returning `ShouldCancel: true`. GameAP stops processing the operation and returns the `Message` to the caller.
+
+```go
+func (p MyPlugin) HandleEvent(ctx context.Context, event *proto.Event) (*proto.EventResult, error) {
+    if event.Type == proto.EventType_EVENT_TYPE_SERVER_PRE_START {
+        serverEvent := event.GetServerEvent()
+
+        if shouldPreventStart(serverEvent.Server) {
+            return &proto.EventResult{
+                Handled:      true,
+                ShouldCancel: true,
+                Message:      proto.String("Server start blocked by plugin"),
+            }, nil
+        }
+    }
+
+    return &proto.EventResult{Handled: true}, nil
+}
+```
+
+## Plugin configuration
+
+GameAP passes a `map[string]string` configuration to your plugin's `Initialize` method. You can define required and optional keys and return an error if a required value is missing:
+
+```go
+func (p MyPlugin) Initialize(ctx context.Context, req *proto.InitializeRequest) (*proto.InitializeResponse, error) {
+    apiKey := req.Config["api_key"]
+    webhookURL := req.Config["webhook_url"]
+
+    if apiKey == "" {
+        return &proto.InitializeResponse{
+            Result: &proto.Result{
+                Success: false,
+                Error:   proto.String("api_key is required"),
+            },
+        }, nil
+    }
+
+    // Store configuration for later use
+    p.apiKey = apiKey
+    p.webhookURL = webhookURL
+
+    return &proto.InitializeResponse{
+        Result: &proto.Result{Success: true},
+    }, nil
+}
+```
+
+## Host function libraries
+
+<Tabs>
+  <Tab title="gameap-log">
+    Write structured log messages at any severity level.
+
+    ```go
+    logger := log.NewLogService()
+    logger.Log(ctx, &log.LogRequest{
+        Level:   "info",
+        Message: "Hello from plugin",
+        Fields:  map[string]string{"key": "value"},
+    })
+    ```
+  </Tab>
+  <Tab title="gameap-cache">
+    Store and retrieve arbitrary byte values with a TTL.
+
+    ```go
+    cache := cache.NewCacheService()
+
+    // Set a value
+    cache.Set(ctx, &cache.CacheSetRequest{
+        Key:        "my-key",
+        Value:      []byte("my-value"),
+        TtlSeconds: 3600,
+    })
+
+    // Get a value
+    resp, _ := cache.Get(ctx, &cache.CacheGetRequest{Key: "my-key"})
+    if resp.Found {
+        value := resp.Value
+    }
+
+    // Delete a value
+    cache.Delete(ctx, &cache.CacheDeleteRequest{Key: "my-key"})
+    ```
+  </Tab>
+  <Tab title="gameap-http">
+    Make outbound HTTP requests to external APIs.
+
+    ```go
+    httpSvc := http.NewHTTPService()
+
+    resp, _ := httpSvc.Fetch(ctx, &http.HTTPFetchRequest{
+        Method:         "POST",
+        Url:            "https://api.example.com/webhook",
+        Headers:        map[string]string{"Content-Type": "application/json"},
+        Body:           []byte(`{"message": "hello"}`),
+        TimeoutSeconds: 30,
+    })
+
+    if resp.StatusCode == 200 {
+        body := resp.Body
+    }
+    ```
+  </Tab>
+  <Tab title="gameap-servercontrol">
+    Trigger server operations programmatically.
+
+    ```go
+    sc := servercontrol.NewServerControlService()
+
+    resp, _ := sc.StartServer(ctx, &servercontrol.ServerControlRequest{
+        ServerId: 123,
+    })
+    if resp.Success {
+        taskID := resp.TaskId
+    }
+    // StopServer, RestartServer, UpdateServer, InstallServer, ReinstallServer work the same way
+    ```
+  </Tab>
+  <Tab title="gameap-nodefs">
+    Perform file system operations on daemon nodes.
+
+    ```go
+    fs := nodefs.NewNodeFSService()
+
+    // Read directory
+    readDirResp, _ := fs.ReadDir(ctx, &nodefs.ReadDirRequest{
+        NodeId: 1,
+        Path:   "/home/servers",
+    })
+
+    // Download a file
+    downloadResp, _ := fs.Download(ctx, &nodefs.DownloadRequest{
+        NodeId: 1,
+        Path:   "/home/servers/server.cfg",
+    })
+
+    // Upload a file
+    fs.Upload(ctx, &nodefs.UploadRequest{
+        NodeId:      1,
+        Path:        "/home/servers/config.txt",
+        Content:     []byte("server config"),
+        Permissions: 0644,
+    })
+    ```
+  </Tab>
+  <Tab title="gameap-crypto">
+    Generate random values and hash passwords with Argon2id.
+
+    ```go
+    crypto := crypto.NewCryptoService()
+
+    // Hash a password (OWASP recommended defaults)
+    hashResp, _ := crypto.Argon2Hash(ctx, &crypto.Argon2HashRequest{
+        Password: "mysecretpassword",
+    })
+    passwordHash := hashResp.Hash // PHC format: $argon2id$...
+
+    // Verify a password
+    verifyResp, _ := crypto.Argon2Verify(ctx, &crypto.Argon2VerifyRequest{
+        Password: "mysecretpassword",
+        Hash:     passwordHash,
+    })
+    if verifyResp.Match {
+        // Password is correct
+    }
+
+    // Generate a random string
+    strResp, _ := crypto.RandomString(ctx, &crypto.RandomStringRequest{
+        Length: 32,
+    })
+    ```
+  </Tab>
+</Tabs>
+
+### Repository services
+
+In addition to the libraries above, plugins can query the GameAP database through typed repository services:
+
+- **`gameap-servers`** — Find and get server records
+- **`gameap-games`** — Look up game definitions by code
+- **`gameap-gamemods`** — Look up game mod definitions by ID
+- **`gameap-users`** — Look up user records by ID
+- **`gameap-nodes`** — Look up node records by ID
+- **`gameap-daemontasks`** — Create daemon tasks
+- **`gameap-serversettings`** — Read and write per-server settings
+- **`gameap-nodecmd`** — Execute commands on daemon nodes
+
+## Custom HTTP endpoints
+
+Plugins can extend the GameAP REST API by registering their own routes. Declare routes in `GetHTTPRoutes` and handle matched requests in `HandleHTTPRequest`.
+
+```go
+func (p MyPlugin) GetHTTPRoutes(ctx context.Context, req *proto.GetHTTPRoutesRequest) (*proto.GetHTTPRoutesResponse, error) {
+    return &proto.GetHTTPRoutesResponse{
+        Routes: []*proto.HTTPRoute{
+            {
+                Path:         "/my-plugin/status",
+                Methods:      []string{"GET"},
+                RequiresAuth: true,
+                AdminOnly:    false,
+                Description:  "Get plugin status",
+            },
+            {
+                Path:         "/my-plugin/config",
+                Methods:      []string{"GET", "POST"},
+                RequiresAuth: true,
+                AdminOnly:    true,
+                Description:  "Plugin configuration",
+            },
+        },
+    }, nil
+}
+
+func (p MyPlugin) HandleHTTPRequest(ctx context.Context, req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
+    switch req.Path {
+    case "/my-plugin/status":
+        return &proto.HTTPResponse{
+            StatusCode: 200,
+            Headers:    map[string]string{"Content-Type": "application/json"},
+            Body:       []byte(`{"status": "ok"}`),
+        }, nil
+    }
+    return &proto.HTTPResponse{StatusCode: 404}, nil
+}
+```
+
+## Example plugin
+
+A complete working example is available in the source repository at `pkg/plugin/examples/server-logger/`. It logs server lifecycle events and is a good starting point for a new plugin.
+
+```bash
+cd pkg/plugin/examples/server-logger
+tinygo build -o server-logger.wasm -target=wasip1 -buildmode=c-shared .
+```
+
+After building, upload the `.wasm` file through the admin UI or API as described in [Installing plugins](/plugins/installing-plugins).

@@ -1,0 +1,166 @@
+---
+title: "Authentication methods and API tokens"
+description: "Log in to GameAP via the web UI or REST API, create Personal Access Tokens, and authenticate every API request with a Bearer token."
+keywords: ["authentication", "login", "API token", "personal access token", "PAT", "Bearer", "REST API"]
+---
+
+GameAP supports two ways to authenticate: an interactive web UI login for browser sessions, and token-based authentication for API calls. For automation and integrations, Personal Access Tokens (PATs) let you issue scoped credentials without sharing your account password.
+
+## Logging in via the web UI
+
+Open your GameAP panel URL in a browser and enter your username and password on the login page. After a successful login, GameAP creates a session that lasts for 24 hours. Selecting **Remember me** extends the session to 30 days.
+
+## Logging in via the API
+
+To obtain a Bearer token programmatically, send a `POST` request to `/api/auth/login` with your credentials:
+
+```bash
+curl -s -X POST "https://your-gameap.example.com/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "login": "alice",
+    "password": "s3cur3passw0rd"
+  }'
+```
+
+A successful response returns a token along with expiry and user info:
+
+```json
+{
+  "token": "eyJ...",
+  "expires_in": 86400,
+  "user": {
+    "login": "alice",
+    "email": "alice@example.com",
+    "name": "Alice"
+  }
+}
+```
+
+Use the returned token as a Bearer token in subsequent requests. Session tokens expire after 24 hours (or 30 days if `remember: "on"` is set at login).
+
+## Making authenticated API requests
+
+Include the token in the `Authorization` header for every API call that requires authentication:
+
+```bash
+curl -s "https://your-gameap.example.com/api/servers" \
+  -H "Authorization: Bearer eyJ..."
+```
+
+## Personal Access Tokens
+
+Personal Access Tokens (PATs) are long-lived tokens you create explicitly. Unlike session tokens, PATs do not expire on their own and are suitable for scripts, CI/CD pipelines, and third-party integrations. Each PAT is scoped to a set of abilities, so you can issue minimal-privilege tokens for specific tasks.
+
+### Token format
+
+When you create a PAT, the API returns the token in the format `{id}|{secret}`, for example `5|abc123def456...`. Store this string immediately — the secret portion is not retrievable after creation.
+
+Use the full `{id}|{secret}` string as the Bearer token in your `Authorization` header.
+
+### Available abilities
+
+PAT abilities are grouped by resource type:
+
+**Server abilities** — control game server operations:
+
+| Ability | Description |
+|---|---|
+| `server:list` | List game servers |
+| `server:start` | Start a game server |
+| `server:stop` | Stop a game server |
+| `server:restart` | Restart a game server |
+| `server:update` | Update a game server |
+| `server:console` | Read and write to the game server console |
+| `server:rcon-console` | Access the RCON console |
+| `server:rcon-players` | View and manage players via RCON |
+| `server:tasks-manage` | Manage scheduled tasks |
+| `server:settings-manage` | Manage server configuration settings |
+
+**Admin abilities** — require elevated privileges:
+
+| Ability | Description |
+|---|---|
+| `admin:server:create` | Create a new game server |
+| `admin:gdaemon-task:read` | Read GameAP Daemon task records |
+
+<Info>
+  To retrieve the full list of available abilities at runtime, call `GET /api/tokens/abilities`.
+</Info>
+
+### Creating a Personal Access Token
+
+<Steps>
+  <Step title="Authenticate">
+    You need an active session or an existing token with sufficient permissions before you can create a new PAT. Log in via the API or web UI first.
+  </Step>
+  <Step title="Choose the abilities you need">
+    Select only the abilities your script or integration requires. Prefer minimal-scope tokens — for example, a monitoring script only needs `server:list`.
+  </Step>
+  <Step title="Send a POST request to /api/tokens">
+    Provide a descriptive `token_name` and the list of `abilities`:
+
+    ```bash
+    curl -s -X POST "https://your-gameap.example.com/api/tokens" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer eyJ..." \
+      -d '{
+        "token_name": "CI deploy script",
+        "abilities": ["server:list", "server:start", "server:stop", "server:restart"]
+      }'
+    ```
+  </Step>
+  <Step title="Save the token">
+    The response includes the full token string in `{id}|{secret}` format:
+
+    ```json
+    {
+      "id": 5,
+      "token": "5|abc123def456..."
+    }
+    ```
+
+    Copy the `token` value and store it securely (for example, as a CI secret or in a secrets manager). GameAP does not display the secret again after this response.
+  </Step>
+  <Step title="Use the token in API requests">
+    Pass the full `{id}|{secret}` string as the Bearer token:
+
+    ```bash
+    curl -s "https://your-gameap.example.com/api/servers" \
+      -H "Authorization: Bearer 5|abc123def456..."
+    ```
+  </Step>
+</Steps>
+
+### Listing your tokens
+
+To view all PATs associated with your account:
+
+```bash
+curl -s "https://your-gameap.example.com/api/tokens" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Revoking a token
+
+To delete a PAT, send a `DELETE` request with the token's numeric ID:
+
+```bash
+curl -s -X DELETE "https://your-gameap.example.com/api/tokens/5" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<Warning>
+  Deleting a token immediately revokes all access granted by that token. Any script or service using it will receive `401 Unauthorized` responses.
+</Warning>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Users and roles" icon="users" href="/admin/users-and-roles">
+    Control per-server permissions with role-based access control.
+  </Card>
+  <Card title="API tokens reference" icon="code" href="/api/tokens">
+    Full API reference for token management endpoints.
+  </Card>
+</CardGroup>

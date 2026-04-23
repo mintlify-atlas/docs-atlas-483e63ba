@@ -1,0 +1,255 @@
+---
+title: "Install GameAP as a binary"
+description: "Download and run the GameAP self-contained binary on Linux, Windows, or macOS without pre-installing any additional dependencies or runtimes."
+keywords: ["binary", "install", "linux", "windows", "macos", "gameap", "standalone"]
+---
+
+GameAP ships as a single self-contained binary that bundles the web server, frontend assets, and all internal dependencies. There is nothing to pre-install — download the binary, set a few environment variables, and run it.
+
+## Supported platforms
+
+| Operating system | Versions |
+|---|---|
+| Linux | Ubuntu, Debian, CentOS, and other distributions |
+| Windows Server | 2016, 2019, 2022, 2025 |
+| Windows | 10, 11 |
+| macOS | Current and previous major releases |
+
+A basic server with at least 1 GB of RAM and a modern CPU is sufficient for small to medium-sized deployments.
+
+## Installation steps
+
+<Steps>
+  <Step title="Download the binary">
+    Grab the latest release for your platform from the [GameAP releases page](https://github.com/gameap/gameap/releases).
+
+    <Tabs>
+      <Tab title="Linux (amd64)">
+        ```bash
+        curl -Lo gameap https://github.com/gameap/gameap/releases/latest/download/gameap-linux-amd64
+        chmod +x gameap
+        sudo mv gameap /usr/local/bin/gameap
+        ```
+      </Tab>
+      <Tab title="Linux (arm64)">
+        ```bash
+        curl -Lo gameap https://github.com/gameap/gameap/releases/latest/download/gameap-linux-arm64
+        chmod +x gameap
+        sudo mv gameap /usr/local/bin/gameap
+        ```
+      </Tab>
+      <Tab title="Windows">
+        Download `gameap-windows-amd64.exe` from the releases page and rename it to `gameap.exe`. Place it in a directory that is on your `PATH`, or run it from any directory by specifying the full path.
+      </Tab>
+      <Tab title="macOS">
+        ```bash
+        curl -Lo gameap https://github.com/gameap/gameap/releases/latest/download/gameap-darwin-amd64
+        chmod +x gameap
+        sudo mv gameap /usr/local/bin/gameap
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Choose a database">
+    GameAP needs a database to store its state. Pick one of the supported backends and note the connection string format you will use in the next step.
+
+    <Tabs>
+      <Tab title="PostgreSQL">
+        ```
+        postgres://username:password@host:5432/database?sslmode=disable
+        ```
+
+        Example for a local PostgreSQL instance:
+
+        ```
+        postgres://gameap:secret@localhost:5432/gameap?sslmode=disable
+        ```
+      </Tab>
+      <Tab title="MySQL / MariaDB">
+        ```
+        username:password@tcp(host:3306)/database?parseTime=true
+        ```
+
+        Example for a local MySQL instance:
+
+        ```
+        gameap:secret@tcp(localhost:3306)/gameap?parseTime=true
+        ```
+      </Tab>
+      <Tab title="SQLite">
+        SQLite requires no external server. Provide a file path and the recommended connection parameters for concurrent access:
+
+        ```
+        file:/path/to/gameap.db?_busy_timeout=5000&_journal_mode=WAL&cache=shared
+        ```
+
+        Example using the default working directory:
+
+        ```
+        file:/var/lib/gameap/gameap.db?_busy_timeout=5000&_journal_mode=WAL&cache=shared
+        ```
+
+        <Note>
+          SQLite is suitable for single-user or low-traffic deployments. For production environments with multiple concurrent users, use PostgreSQL or MySQL.
+        </Note>
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Set environment variables">
+    Configure GameAP by setting environment variables. You can pass them inline when starting the binary or load them from a `.env` file.
+
+    **Option A — inline (Linux/macOS):**
+
+    ```bash
+    export DATABASE_DRIVER=postgres
+    export DATABASE_URL="postgres://gameap:secret@localhost:5432/gameap?sslmode=disable"
+    export ENCRYPTION_KEY="your-random-32-char-encryption-key"
+    export AUTH_SECRET="your-random-32-char-auth-secret"
+    ```
+
+    **Option A — inline (Windows PowerShell):**
+
+    ```powershell
+    $env:DATABASE_DRIVER = "postgres"
+    $env:DATABASE_URL = "postgres://gameap:secret@localhost:5432/gameap?sslmode=disable"
+    $env:ENCRYPTION_KEY = "your-random-32-char-encryption-key"
+    $env:AUTH_SECRET = "your-random-32-char-auth-secret"
+    ```
+
+    **Option B — `.env` file:**
+
+    Create a `.env` file in the same directory as the binary:
+
+    ```bash .env
+    # Required
+    DATABASE_DRIVER=postgres
+    DATABASE_URL=postgres://gameap:secret@localhost:5432/gameap?sslmode=disable
+    ENCRYPTION_KEY=your-random-32-char-encryption-key
+    AUTH_SECRET=your-random-32-char-auth-secret
+
+    # Server
+    HTTP_HOST=0.0.0.0
+    HTTP_PORT=8025
+
+    # File storage
+    FILES_DRIVER=local
+    FILES_LOCAL_BASE_PATH=/var/lib/gameap/files
+
+    # Logging
+    LOGGER_LEVEL=info
+    ```
+
+    <Warning>
+      `ENCRYPTION_KEY` and `AUTH_SECRET` are required. GameAP will not start without them. Use random strings of at least 32 characters.
+    </Warning>
+  </Step>
+  <Step title="Run the binary">
+    <Tabs>
+      <Tab title="Linux / macOS">
+        ```bash
+        gameap
+        ```
+
+        To run as a background service, use your platform's service manager. Example systemd unit:
+
+        ```ini /etc/systemd/system/gameap.service
+        [Unit]
+        Description=GameAP game server management panel
+        After=network.target
+
+        [Service]
+        Type=simple
+        User=gameap
+        WorkingDirectory=/var/lib/gameap
+        EnvironmentFile=/etc/gameap/.env
+        ExecStart=/usr/local/bin/gameap
+        Restart=on-failure
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        ```
+
+        Enable and start:
+
+        ```bash
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now gameap
+        ```
+      </Tab>
+      <Tab title="Windows">
+        ```powershell
+        .\gameap.exe
+        ```
+
+        To install GameAP as a Windows service, use `sc.exe` or a tool such as [NSSM](https://nssm.cc/):
+
+        ```powershell
+        nssm install GameAP "C:\gameap\gameap.exe"
+        nssm set GameAP AppDirectory "C:\gameap"
+        nssm set GameAP AppEnvironmentExtra "DATABASE_DRIVER=postgres" "DATABASE_URL=postgres://..."
+        nssm start GameAP
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Open the panel">
+    Navigate to [http://localhost:8025](http://localhost:8025) in your browser. The default port is `8025`; you can change it with the `HTTP_PORT` environment variable.
+  </Step>
+</Steps>
+
+## Running with environment variables inline
+
+You can pass all variables on the command line without a `.env` file. This is useful for one-off runs or scripted deployments.
+
+```bash
+DATABASE_DRIVER=sqlite \
+DATABASE_URL="file:/var/lib/gameap/gameap.db?_busy_timeout=5000&_journal_mode=WAL&cache=shared" \
+ENCRYPTION_KEY="your-encryption-key" \
+AUTH_SECRET="your-auth-secret" \
+HTTP_PORT=8025 \
+gameap
+```
+
+## Database connection string formats
+
+| Driver | `DATABASE_DRIVER` value | `DATABASE_URL` format |
+|---|---|---|
+| PostgreSQL | `postgres` | `postgres://user:pass@host:5432/dbname?sslmode=disable` |
+| MySQL / MariaDB | `mysql` | `user:pass@tcp(host:3306)/dbname?parseTime=true` |
+| SQLite | `sqlite` | `file:/path/to/file.db?_busy_timeout=5000&_journal_mode=WAL&cache=shared` |
+| In-memory | `inmemory` | _(leave empty)_ |
+
+<Note>
+  The `inmemory` driver stores no data on disk. All data is lost when the process restarts. Use it only for testing.
+</Note>
+
+## Enabling TLS
+
+To serve GameAP over HTTPS without a reverse proxy, provide a TLS certificate and key:
+
+```bash
+TLS_CERT_FILE=/path/to/cert.pem \
+TLS_KEY_FILE=/path/to/key.pem \
+TLS_FORCE_HTTPS=true \
+gameap
+```
+
+Alternatively, pass the certificate content directly as environment variable values using PEM or base64 encoding:
+
+```bash
+TLS_CERT="$(cat /path/to/cert.pem)" \
+TLS_KEY="$(cat /path/to/key.pem)" \
+gameap
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration reference" icon="sliders" href="/installation/configuration">
+    Browse every environment variable available to configure GameAP.
+  </Card>
+  <Card title="Deploy with Docker" icon="docker" href="/installation/docker">
+    Use Docker Compose for a managed deployment with automatic service restarts.
+  </Card>
+</CardGroup>

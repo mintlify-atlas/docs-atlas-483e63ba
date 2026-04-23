@@ -1,0 +1,231 @@
+---
+title: "REST API endpoints for user management"
+description: "Full reference for user management endpoints: list, create, update, and delete users, manage server permissions, and read current user profile."
+keywords: ["gameap users api", "user management api", "user permissions", "profile api"]
+---
+
+The users API covers both admin-level user management (creating accounts, assigning server access, updating permissions) and self-service profile operations available to any authenticated user. Admin endpoints require an administrator account; the current-user and profile endpoints are accessible to all authenticated users.
+
+## Admin user management
+
+<Note>
+  The endpoints in this section require an administrator account.
+</Note>
+
+<AccordionGroup>
+  <Accordion title="GET /api/users — list users">
+    Returns a paginated, searchable list of all user accounts.
+
+    ```bash
+    curl http://<host>:8025/api/users?page=1&per_page=20&search=alice \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Query parameters:**
+
+    <ParamField query="page" type="integer" default="1">
+      Page number.
+    </ParamField>
+    <ParamField query="per_page" type="integer" default="15">
+      Results per page.
+    </ParamField>
+    <ParamField query="sort" type="string">
+      Field to sort by.
+    </ParamField>
+    <ParamField query="search" type="string">
+      Filter users by name or email.
+    </ParamField>
+
+    **Response (200):** Paginated list of user objects.
+  </Accordion>
+
+  <Accordion title="POST /api/users — create user">
+    Creates a new user account.
+
+    ```bash
+    curl -X POST http://<host>:8025/api/users \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Alice",
+        "email": "alice@example.com",
+        "password": "securepassword",
+        "admin": false
+      }'
+    ```
+
+    <ParamField body="name" type="string" required>
+      Display name for the new user.
+    </ParamField>
+    <ParamField body="email" type="string" required>
+      Email address used as the login credential.
+    </ParamField>
+    <ParamField body="password" type="string" required>
+      Initial account password.
+    </ParamField>
+    <ParamField body="admin" type="boolean" default="false">
+      Whether the user should have administrator privileges.
+    </ParamField>
+
+    **Response (200):** The created user object.
+  </Accordion>
+
+  <Accordion title="GET /api/users/{id} — get user">
+    Returns a single user by numeric ID.
+
+    ```bash
+    curl http://<host>:8025/api/users/42 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** User object with fields including `id`, `name`, `email`, and `admin`.
+  </Accordion>
+
+  <Accordion title="PUT /api/users/{id} — update user">
+    Updates a user's account details.
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/users/42 \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Alice Smith"}'
+    ```
+
+    **Response (200):** Updated user object.
+  </Accordion>
+
+  <Accordion title="DELETE /api/users/{id} — delete user">
+    Permanently deletes a user account.
+
+    <Warning>
+      This action cannot be undone. All data associated with the user will be removed.
+    </Warning>
+
+    ```bash
+    curl -X DELETE http://<host>:8025/api/users/42 \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>
+
+## User server access
+
+<AccordionGroup>
+  <Accordion title="GET /api/users/{id}/servers — list user's servers">
+    Returns the game servers that are assigned to and accessible by a specific user.
+
+    ```bash
+    curl http://<host>:8025/api/users/42/servers \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Array of server objects assigned to the user.
+  </Accordion>
+
+  <Accordion title="GET /api/users/{id}/servers/{server}/permissions — get server permissions">
+    Returns the per-server permission flags for a specific user and server combination.
+
+    ```bash
+    curl http://<host>:8025/api/users/42/servers/6/permissions \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):**
+
+    ```json
+    {
+      "console": true,
+      "rcon": false,
+      "tasks": true,
+      "settings": false
+    }
+    ```
+
+    <ResponseField name="console" type="boolean">
+      Can the user access the server console.
+    </ResponseField>
+    <ResponseField name="rcon" type="boolean">
+      Can the user send RCON commands.
+    </ResponseField>
+    <ResponseField name="tasks" type="boolean">
+      Can the user manage scheduled tasks.
+    </ResponseField>
+    <ResponseField name="settings" type="boolean">
+      Can the user change server settings.
+    </ResponseField>
+  </Accordion>
+
+  <Accordion title="PUT /api/users/{id}/servers/{server}/permissions — update server permissions">
+    Updates the per-server permission flags for a specific user and server combination.
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/users/42/servers/6/permissions \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "console": true,
+        "rcon": true,
+        "tasks": false,
+        "settings": false
+      }'
+    ```
+
+    <ParamField body="console" type="boolean">
+      Grant or revoke console access.
+    </ParamField>
+    <ParamField body="rcon" type="boolean">
+      Grant or revoke RCON access.
+    </ParamField>
+    <ParamField body="tasks" type="boolean">
+      Grant or revoke scheduled task management.
+    </ParamField>
+    <ParamField body="settings" type="boolean">
+      Grant or revoke server settings access.
+    </ParamField>
+
+    **Response (200):** `{"status": "ok"}`
+  </Accordion>
+</AccordionGroup>
+
+## Current user
+
+These endpoints are available to any authenticated user without admin privileges.
+
+<AccordionGroup>
+  <Accordion title="GET /api/user — get current user">
+    Returns the account details for the currently authenticated user.
+
+    ```bash
+    curl http://<host>:8025/api/user \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** User object for the authenticated account.
+  </Accordion>
+
+  <Accordion title="GET /api/profile — get profile">
+    Returns the profile information for the currently authenticated user, which may include additional preferences beyond the base user object.
+
+    ```bash
+    curl http://<host>:8025/api/profile \
+      -H "Authorization: Bearer YOUR_TOKEN"
+    ```
+
+    **Response (200):** Profile object.
+  </Accordion>
+
+  <Accordion title="PUT /api/profile — update profile">
+    Updates the current user's profile information (name, email, password, etc.).
+
+    ```bash
+    curl -X PUT http://<host>:8025/api/profile \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Alice", "email": "alice@example.com"}'
+    ```
+
+    **Response (200):** Updated profile object.
+  </Accordion>
+</AccordionGroup>

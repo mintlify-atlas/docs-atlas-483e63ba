@@ -1,0 +1,381 @@
+---
+title: "Building GameAP frontend plugins with Vue"
+description: "Build Vue-based frontend plugins for GameAP using the plugin SDK. Add pages, server tabs, dashboard widgets, file editors, and sidebar items."
+keywords: ["frontend plugin", "vue", "plugin sdk", "typescript", "ui extension"]
+---
+
+GameAP frontend plugins are Vue component bundles built with the `@gameap/plugin-sdk` package. A frontend plugin can add full pages under a dedicated route, inject components into existing UI slots (such as server tabs or dashboard widgets), register custom file editors, and contribute sidebar menu items and home page buttons. The compiled JavaScript bundle is embedded in the backend `.wasm` file and served automatically when the backend plugin loads.
+
+## Installation
+
+```bash
+npm install @gameap/plugin-sdk
+```
+
+The quickest way to get started is to copy the template from `templates/plugin-template/` in the SDK repository, then update `package.json` with your plugin details and implement your plugin in `src/index.ts`.
+
+## Plugin definition
+
+Every frontend plugin exports a `PluginDefinition` object. All fields are typed by the SDK.
+
+```typescript
+import type { PluginDefinition } from '@gameap/plugin-sdk';
+import MyComponent from './components/MyComponent.vue';
+
+export const myPlugin: PluginDefinition = {
+    id: 'my-plugin',
+    name: 'My Plugin',
+    version: '1.0.0',
+    apiVersion: '1.0',
+    description: 'A sample plugin',
+    author: 'Your Name',
+    routes: [...],
+    menuItems: [...],
+    slots: {...},
+    homeButtons: [...],
+    fileEditors: [...],
+    translations: {...},
+};
+```
+
+### Definition fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | Yes | Unique plugin identifier, e.g. `my-plugin` |
+| `name` | `string` | Yes | Human-readable name shown in the UI |
+| `version` | `string` | Yes | Semantic version, e.g. `1.0.0` |
+| `apiVersion` | `'1.0'` | Yes | GameAP plugin API version |
+| `description` | `string` | No | Short plugin description |
+| `author` | `string` | No | Plugin author |
+| `routes` | `PluginRoute[]` | No | Pages registered under `/plugins/{pluginId}/` |
+| `menuItems` | `PluginMenuItem[]` | No | Sidebar navigation items |
+| `slots` | `Record<SlotName, PluginSlotComponent[]>` | No | Components injected into UI slots |
+| `homeButtons` | `PluginHomeButton[]` | No | Buttons added to the home page |
+| `fileEditors` | `PluginFileEditor[]` | No | Custom file editors for the file manager |
+| `translations` | `Record<string, Record<string, string>>` | No | Translation strings by language code |
+| `onInit` | `() => void \| Promise<void>` | No | Runs once when the plugin is registered |
+| `onDestroy` | `() => void \| Promise<void>` | No | Runs when the plugin is unregistered |
+
+## Plugin features
+
+<Tabs>
+  <Tab title="Routes">
+    Plugin pages are registered under `/plugins/{pluginId}/`. The `path` field in each route is relative to that base.
+
+    ```typescript
+    routes: [
+        {
+            path: '/',              // Resolves to /plugins/my-plugin/
+            name: 'index',          // Route name: plugin.my-plugin.index
+            component: MyPage,
+            meta: {
+                title: 'My Page',
+                requiresAuth: true,
+                requiresAdmin: false,
+            },
+            children: [...],        // Nested routes supported
+        },
+    ],
+    ```
+  </Tab>
+  <Tab title="Menu items">
+    Add items to the sidebar under the `servers`, `admin`, or `custom` section.
+
+    ```typescript
+    menuItems: [
+        {
+            section: 'servers',     // 'servers' | 'admin' | 'custom'
+            icon: 'fas fa-puzzle-piece',
+            text: 'My Plugin',
+            route: { name: 'index' },
+            order: 100,
+            adminOnly: false,
+        },
+    ],
+    ```
+  </Tab>
+  <Tab title="Slots">
+    Inject components into predefined extension points in the UI.
+
+    ```typescript
+    slots: {
+        'server-tabs': [
+            {
+                component: ServerTab,
+                order: 100,
+                label: 'My Tab',
+                icon: 'fas fa-puzzle-piece',
+                name: 'my-tab',
+            },
+        ],
+        'dashboard-widgets': [
+            {
+                component: DashboardWidget,
+                order: 50,
+                label: 'My Widget',
+            },
+        ],
+    },
+    ```
+
+    ### Available slots
+
+    | Slot name | Where it appears | Props passed |
+    |---|---|---|
+    | `server-tabs` | Tabs on server detail pages | `ServerTabProps` |
+    | `dashboard-widgets` | Widgets on the dashboard | `DashboardWidgetProps` |
+    | `sidebar-sections` | Sections in the sidebar | — |
+    | `admin-pages` | Admin page components | — |
+  </Tab>
+  <Tab title="Home buttons">
+    Add buttons to the GameAP home page.
+
+    ```typescript
+    homeButtons: [
+        {
+            name: 'My Plugin',
+            icon: 'fas fa-puzzle-piece',
+            route: { name: 'index' },
+            order: 100,
+        },
+    ],
+    ```
+  </Tab>
+  <Tab title="File editors">
+    Register custom editors that appear in the file manager context menu. When the user double-clicks a matching file, the most specific registered editor opens automatically.
+
+    ```typescript
+    import ServerCfgEditor from './components/ServerCfgEditor.vue';
+    import IniEditor from './components/IniEditor.vue';
+    import HexEditor from './components/HexEditor.vue';
+
+    fileEditors: [
+        {
+            id: 'server-cfg',
+            name: 'Server Config Editor',
+            component: ServerCfgEditor,
+            match: {
+                fileName: 'server.cfg',
+                gameCode: 'cstrike',
+            },
+            icon: 'fa-solid fa-gear',
+        },
+        {
+            id: 'ini-editor',
+            name: 'INI Editor',
+            component: IniEditor,
+            match: {
+                extensions: ['ini', 'cfg'],
+            },
+        },
+        {
+            id: 'hex-editor',
+            name: 'Hex Editor',
+            component: HexEditor,
+            match: { allFiles: true },
+            contentType: 'binary',
+            icon: 'fa-solid fa-memory',
+        },
+    ],
+    ```
+
+    ### Matching rules
+
+    All specified rules must match. When multiple editors match the same file, the most specific one opens on double-click; all matches appear in the context menu.
+
+    | Rule | Description | Example |
+    |---|---|---|
+    | `allFiles` | Match every file (lowest specificity) | `true` |
+    | `fileName` | Exact file name | `'server.cfg'` |
+    | `pathContains` | File path contains this string | `'amxmodx/configs/'` |
+    | `fullPath` | Exact full path | `'/cstrike/server.cfg'` |
+    | `extensions` | Array of file extensions | `['ini', 'cfg', 'json']` |
+    | `fileNameRegexp` | Regex pattern for the file name | `'^server.*\\.cfg$'` |
+    | `gameCode` | Only for this game code | `'cstrike'` |
+    | `gameName` | Only for this game name | `'Counter-Strike'` |
+
+    Specificity order: `fullPath` > `pathContains` > `fileName` > `fileNameRegexp` > `extensions` > `allFiles`. Game filters add to the specificity score.
+
+    ### Editor component contract
+
+    Editor components receive these props and must emit `save` or `close`:
+
+    ```typescript
+    interface FileEditorProps {
+        content: string | ArrayBuffer;  // string for text, ArrayBuffer for binary
+        filePath: string;
+        fileName: string;
+        extension: string;
+        gameCode?: string;
+        gameName?: string;
+        pluginId: string;
+    }
+    ```
+
+    ```vue
+    <script setup>
+    const props = defineProps({ content: String, /* ... */ });
+    const emit = defineEmits(['save', 'close']);
+
+    function save() { emit('save', editedContent.value); }
+    function close() { emit('close'); }
+
+    defineExpose({ save, close });
+    </script>
+    ```
+  </Tab>
+</Tabs>
+
+## Context hooks
+
+Use these composables in your plugin components to read GameAP state:
+
+```typescript
+import {
+    usePluginContext,
+    useServer,
+    useServerId,
+    useServerAbilities,
+    useCurrentUser,
+    useIsAdmin,
+    useIsAuthenticated,
+    usePluginRoute,
+    usePluginId,
+} from '@gameap/plugin-sdk';
+
+// Full context object
+const ctx = usePluginContext();
+
+// Server data (available on server detail pages)
+const server = useServer();           // ServerData | null
+const serverId = useServerId();       // number | null
+const abilities = useServerAbilities(); // string[]
+
+// Current user
+const user = useCurrentUser();        // UserData
+const isAdmin = useIsAdmin();         // boolean
+const isAuthenticated = useIsAuthenticated(); // boolean
+
+// Route and plugin identity
+const route = usePluginRoute();
+const pluginId = usePluginId();       // string | null
+```
+
+## Internationalization
+
+Provide translations for any language in the `translations` field. Use the `@:key` prefix in `text`, `label`, and `name` fields to reference a translation key.
+
+```typescript
+export const myPlugin: PluginDefinition = {
+    id: 'my-plugin',
+    name: 'My Plugin',
+    version: '1.0.0',
+    apiVersion: '1.0',
+    translations: {
+        en: {
+            'menu_item': 'My Plugin',
+            'server_tab': 'My Tab',
+            'greeting': 'Hello, :name!',
+        },
+        ru: {
+            'menu_item': 'Мой плагин',
+            'server_tab': 'Моя вкладка',
+            'greeting': 'Привет, :name!',
+        },
+    },
+    menuItems: [{
+        text: '@:menu_item',  // Resolved from translations
+        section: 'servers',
+        route: { name: 'index' },
+    }],
+    slots: {
+        'server-tabs': [{
+            label: '@:server_tab',  // Resolved from translations
+            component: ServerTab,
+        }],
+    },
+};
+```
+
+### Using translations in components
+
+<Tabs>
+  <Tab title="Plugin pages (routes)">
+    Use `usePluginTrans` in components rendered as full plugin pages. The translation context is provided automatically.
+
+    ```vue
+    <script setup>
+    import { usePluginTrans } from '@gameap/plugin-sdk';
+
+    const { trans, locale } = usePluginTrans();
+    </script>
+
+    <template>
+      <p>{{ trans('greeting', { name: 'World' }) }}</p>
+      <span>Current locale: {{ locale }}</span>
+    </template>
+    ```
+  </Tab>
+  <Tab title="Slot components">
+    Use `providePluginTrans` in slot components (tabs, widgets) to establish the translation context. Child components can then use `usePluginTrans` normally.
+
+    ```vue
+    <script setup>
+    import { providePluginTrans } from '@gameap/plugin-sdk';
+    import type { ServerTabProps } from '@gameap/plugin-sdk';
+
+    const props = defineProps<ServerTabProps>();
+
+    // Creates translation context for this component and its children
+    const { trans } = providePluginTrans(props.pluginId);
+    </script>
+
+    <template>
+      <p>{{ trans('greeting', { name: 'World' }) }}</p>
+    </template>
+    ```
+  </Tab>
+</Tabs>
+
+The `trans` function falls back to English if the current locale has no translation, and returns the key itself if no translation exists at all.
+
+## Build configuration
+
+Use the `createPluginConfig` helper from `@gameap/plugin-sdk/vite` to configure Vite. This sets the correct output format and entry point for GameAP to load the bundle.
+
+```javascript
+// vite.config.js
+import { createPluginConfig } from '@gameap/plugin-sdk/vite';
+
+export default createPluginConfig({
+    entry: 'src/index.ts',
+    name: 'plugin',
+    outDir: 'dist',
+});
+```
+
+```bash
+# Development watch mode
+npm run dev
+
+# Production build
+npm run build
+```
+
+## Integration with the backend plugin
+
+The compiled JavaScript bundle is embedded in your backend `.wasm` plugin and returned by the `GetFrontendBundle` method. GameAP calls this method during plugin initialization, then serves the bundle to the browser. CSS styles are also embedded and served at `/plugins.css`, which is loaded before plugin JavaScript.
+
+```protobuf
+message GetFrontendBundleResponse {
+  bytes bundle    = 1;  // JavaScript bundle
+  bool has_bundle = 2;
+  bytes styles    = 3;  // CSS styles
+  bool has_styles = 4;
+}
+```
+
+<Tip>
+  For a complete end-to-end example — including the WASM plugin that embeds and serves the frontend bundle — refer to the plugin examples directory in the source repository.
+</Tip>

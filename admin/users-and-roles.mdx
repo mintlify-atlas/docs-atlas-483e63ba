@@ -1,0 +1,132 @@
+---
+title: "Managing users and roles in GameAP"
+description: "Create and manage user accounts, assign roles, and control per-server permissions using GameAP's role-based access control (RBAC) system."
+keywords: ["users", "roles", "RBAC", "permissions", "access control", "game server"]
+---
+
+GameAP includes a role-based access control (RBAC) system that lets you decide exactly what each user can do — and on which servers. Admins have unrestricted access to all resources, while regular users receive only the permissions you explicitly grant them, either globally or scoped to individual servers.
+
+## User types
+
+<Tabs>
+  <Tab title="Admin users">
+    Admin users hold the `admin roles & permissions` ability and are automatically granted every server permission across the entire panel. You do not need to assign per-server abilities to admin accounts — they inherit full access by default.
+
+    Admin accounts are appropriate for panel operators and infrastructure owners who need to manage nodes, create game server definitions, and administer other users.
+
+    <Warning>
+      Grant admin access sparingly. An admin can modify RBAC settings for all other users.
+    </Warning>
+  </Tab>
+  <Tab title="Regular users">
+    Regular users have no server access unless you explicitly grant it. Permissions are assigned per server, giving you fine-grained control over who can start, stop, or access the console of each game server instance.
+
+    A regular user account is appropriate for game server tenants, server co-owners, or community moderators who should only manage specific servers.
+  </Tab>
+</Tabs>
+
+## RBAC abilities
+
+Each server permission is represented by an ability name. The following abilities are available for assignment:
+
+| Ability | Description |
+|---|---|
+| `game-server-common` | General access to view the server |
+| `game-server-start` | Start the game server |
+| `game-server-stop` | Stop the game server |
+| `game-server-restart` | Restart the game server |
+| `game-server-pause` | Pause the game server process |
+| `game-server-update` | Trigger a server update |
+| `game-server-files` | Browse and manage server files |
+| `game-server-tasks` | View and manage scheduled tasks |
+| `game-server-settings` | Edit server configuration settings |
+| `game-server-console-view` | Read the live game server console |
+| `game-server-console-send` | Send commands to the console |
+| `game-server-rcon-console` | Access the RCON console |
+| `game-server-rcon-players` | View and manage connected players via RCON |
+
+Plugins can register additional abilities that extend this list. Any plugin-defined abilities appear alongside the built-in ones when you update a user's permissions.
+
+## Creating a user
+
+<Steps>
+  <Step title="Send a POST request to /api/users">
+    Submit the new user's credentials. All three fields — `login`, `email`, and `password` — are required. The password must be between 8 and 64 characters.
+
+    ```bash
+    curl -s -X POST "https://your-gameap.example.com/api/users" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_API_TOKEN" \
+      -d '{
+        "login": "alice",
+        "email": "alice@example.com",
+        "password": "s3cur3passw0rd",
+        "name": "Alice"
+      }'
+    ```
+
+    A successful response returns the created user object, including the assigned `id`.
+  </Step>
+  <Step title="Note the new user's ID">
+    The response body includes the user's numeric `id`. You need this ID when assigning server permissions in the next step.
+
+    ```json
+    {
+      "id": 42,
+      "login": "alice",
+      "email": "alice@example.com",
+      "name": "Alice"
+    }
+    ```
+  </Step>
+  <Step title="Grant access to a server">
+    Use the user ID and the target server ID to set per-server permissions. Send a `PUT` request to `/api/users/{id}/servers/{server}/permissions` with an array of ability objects.
+
+    ```bash
+    curl -s -X PUT "https://your-gameap.example.com/api/users/42/servers/7/permissions" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_API_TOKEN" \
+      -d '[
+        {"name": "game-server-common", "allowed": true},
+        {"name": "game-server-start", "allowed": true},
+        {"name": "game-server-stop", "allowed": true},
+        {"name": "game-server-restart", "allowed": true},
+        {"name": "game-server-console-view", "allowed": true},
+        {"name": "game-server-console-send", "allowed": false}
+      ]'
+    ```
+
+    Set `"allowed": true` to grant the ability and `"allowed": false` to explicitly revoke it. Abilities omitted from the request are left unchanged.
+  </Step>
+</Steps>
+
+## Viewing a user's server permissions
+
+To check which abilities a user currently has on a specific server, send a `GET` request:
+
+```bash
+curl -s "https://your-gameap.example.com/api/users/42/servers/7/permissions" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+The response is an array of permission objects, each indicating whether the ability is currently allowed for that user on that server.
+
+## Listing servers accessible to a user
+
+To retrieve the list of servers a user has any permissions on, use the `/api/users/{id}/servers` endpoint:
+
+```bash
+curl -s "https://your-gameap.example.com/api/users/42/servers" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Authentication and API tokens" icon="key" href="/admin/authentication">
+    Issue Personal Access Tokens to authenticate API requests.
+  </Card>
+  <Card title="API users reference" icon="code" href="/api/users">
+    Full API reference for user management endpoints.
+  </Card>
+</CardGroup>

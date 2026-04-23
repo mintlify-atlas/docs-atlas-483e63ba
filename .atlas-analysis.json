@@ -1,0 +1,137 @@
+{
+  "projectType": "saas",
+  "projectName": "GameAP",
+  "projectDescription": "A free and open-source game server management panel that lets you deploy, control, and monitor game servers through a web UI and REST API.",
+  "theme": "maple",
+  "primaryColor": "#7c7c7c",
+  "lightColor": "#060606",
+  "darkColor": "#c3c3c3",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Installation",
+            "pages": [
+              "installation/docker",
+              "installation/binary",
+              "installation/configuration"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "guides/game-servers",
+              "guides/nodes",
+              "guides/games-and-mods",
+              "guides/file-manager",
+              "guides/scheduled-tasks"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "admin/users-and-roles",
+              "admin/authentication",
+              "admin/certificates"
+            ]
+          },
+          {
+            "group": "Plugins",
+            "pages": [
+              "plugins/overview",
+              "plugins/installing-plugins",
+              "plugins/developing-backend",
+              "plugins/developing-frontend"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/servers",
+              "api/nodes",
+              "api/games",
+              "api/users",
+              "api/tokens",
+              "api/tasks"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Web-based game server management panel with Vue frontend",
+    "REST API for programmatic control of game servers",
+    "Multi-node architecture with lightweight daemon agents (GameAP Daemon)",
+    "Support for PostgreSQL, MySQL/MariaDB, and SQLite databases",
+    "Role-based access control (RBAC) for granular permissions",
+    "WebAssembly plugin system for extending functionality",
+    "Built-in file manager for server file operations",
+    "Scheduled server tasks (cron-style automation)",
+    "RCON support for in-game commands and player management",
+    "TLS/HTTPS support with certificate management",
+    "Redis and in-memory caching with configurable TTLs",
+    "Local and S3-compatible file storage backends",
+    "Personal Access Tokens (PAT) with scoped abilities",
+    "Import games from Pelican egg format",
+    "Docker-first deployment with multi-platform images"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "GET /api/servers",
+    "POST /api/servers",
+    "GET /api/servers/{id}",
+    "PUT /api/servers/{id}",
+    "DELETE /api/servers/{id}",
+    "POST /api/servers/{server}/start",
+    "POST /api/servers/{server}/stop",
+    "POST /api/servers/{server}/restart",
+    "POST /api/servers/{server}/update",
+    "GET /api/servers/{server}/console",
+    "POST /api/servers/{server}/console",
+    "POST /api/servers/{server}/rcon",
+    "GET /api/servers/{server}/rcon/players",
+    "GET /api/servers/{server}/tasks",
+    "POST /api/servers/{server}/tasks",
+    "GET /api/servers/{server}/settings",
+    "PUT /api/servers/{server}/settings",
+    "GET /api/file-manager/{server}/content",
+    "GET /api/nodes",
+    "POST /api/nodes",
+    "GET /api/nodes/{id}",
+    "PUT /api/nodes/{id}",
+    "DELETE /api/nodes/{id}",
+    "GET /api/games",
+    "POST /api/games",
+    "GET /api/users",
+    "POST /api/users",
+    "GET /api/tokens",
+    "POST /api/tokens",
+    "DELETE /api/tokens/{id}",
+    "GET /api/health",
+    "GET /api/gdaemon_tasks",
+    "GET /api/plugin-store/plugins"
+  ]
+}
